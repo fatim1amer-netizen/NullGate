@@ -1,0 +1,46 @@
+# NullGate WAF — systemd unit
+# Install: sudo cp deploy/nullgate.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now nullgate
+#
+# The service runs as an unprivileged user, read-only where possible.
+
+[Unit]
+Description=NullGate WAF — fail-closed web application firewall
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as an unprivileged system user (create it once with:
+#   sudo useradd --system --home /opt/nullgate --shell /usr/sbin/nologin nullgate )
+User=nullgate
+Group=nullgate
+
+# The WAF binary and its read-only configuration.
+ExecStart=/opt/nullgate/nullgate --config /opt/nullgate/configs/config.yaml
+WorkingDirectory=/opt/nullgate
+Restart=on-failure
+RestartSec=3
+
+# Only writable path: structured logs (if logging.output is "file").
+ReadWritePaths=/var/log/nullgate
+StandardOutput=journal
+StandardError=journal
+
+# Defense in depth: no privilege escalation, strict namespace exposure.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Optional hard limits; tune to your deployment.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

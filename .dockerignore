@@ -1,0 +1,18 @@
+# Keep the build context small and reproducible.
+.git
+.gitignore
+*.md
+docs/
+deploy/
+scripts/
+bin/
+logs/*.log
+nullgate
+nullgate.exe
+*.test
+*.out
+coverage.*
+.idea/
+.vscode/
+Dockerfile
+docker-compose.yml

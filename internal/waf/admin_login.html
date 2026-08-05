@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>NullGate WAF — Sign in</title>
+<style>
+:root{
+  --font:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  --radius:14px; --t:.18s cubic-bezier(.4,0,.2,1);
+}
+html[data-theme="dark"]{
+  --bg:#0a0e14; --panel:rgba(22,29,42,.82); --panel-solid:#161d2a;
+  --border:rgba(255,255,255,.10); --fg:#e6edf6; --muted:#8b98ad;
+  --accent:#4f8cff; --accent-2:#8b5cf6; --bad:#f75549; --bad-bg:rgba(247,85,73,.13);
+  --glow:radial-gradient(1000px 480px at 20% -10%,rgba(79,140,255,.18),transparent 60%),
+         radial-gradient(800px 460px at 100% 0%,rgba(139,92,246,.14),transparent 55%);
+}
+html[data-theme="light"]{
+  --bg:#eef1f6; --panel:rgba(255,255,255,.88); --panel-solid:#fff;
+  --border:rgba(15,23,42,.10); --fg:#141b26; --muted:#586274;
+  --accent:#2563eb; --accent-2:#7c3aed; --bad:#d93a2f; --bad-bg:rgba(217,58,47,.10);
+  --glow:radial-gradient(1000px 480px at 20% -10%,rgba(37,99,235,.10),transparent 60%),
+         radial-gradient(800px 460px at 100% 0%,rgba(124,58,237,.08),transparent 55%);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:var(--font); background:var(--bg); color:var(--fg);
+  background-image:var(--glow); background-attachment:fixed;
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  -webkit-font-smoothing:antialiased;
+}
+body.rtl{direction:rtl}
+.card{
+  width:100%; max-width:400px; background:var(--panel);
+  backdrop-filter:saturate(140%) blur(16px);
+  border:1px solid var(--border); border-radius:var(--radius);
+  box-shadow:0 20px 50px -20px rgba(0,0,0,.55); padding:34px 30px 30px;
+}
+.brand{display:flex; align-items:center; gap:12px; margin-bottom:6px}
+.brand .logo{
+  width:44px; height:44px; border-radius:12px; display:grid; place-items:center;
+  font-size:22px; background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  color:#fff; box-shadow:0 8px 24px -8px var(--accent);
+}
+.brand h1{font-size:19px; margin:0; letter-spacing:.2px}
+.sub{color:var(--muted); font-size:13px; margin:2px 0 24px}
+label{display:block; font-size:13px; color:var(--muted); margin:14px 0 6px}
+input{
+  width:100%; padding:12px 13px; font-size:15px; font-family:var(--font);
+  background:var(--panel-solid); color:var(--fg);
+  border:1px solid var(--border); border-radius:10px; transition:border var(--t),box-shadow var(--t);
+}
+input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+button{
+  width:100%; margin-top:22px; padding:12px; font-size:15px; font-weight:600;
+  color:#fff; border:0; border-radius:10px; cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  transition:transform var(--t),filter var(--t);
+}
+button:hover{filter:brightness(1.07)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.6; cursor:default}
+.err{
+  display:none; margin-top:16px; padding:10px 12px; font-size:13px;
+  color:var(--bad); background:var(--bad-bg); border:1px solid var(--bad);
+  border-radius:9px;
+}
+.err.show{display:block}
+.foot{display:flex; justify-content:space-between; align-items:center; margin-top:22px}
+.foot button{width:auto; margin:0; padding:6px 10px; font-size:12px; font-weight:500;
+  background:transparent; color:var(--muted); border:1px solid var(--border)}
+.foot button:hover{color:var(--fg); filter:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="logo">🛡</div>
+    <div>
+      <h1>NullGate WAF</h1>
+    </div>
+  </div>
+  <p class="sub" data-i18n="sub">Sign in to the control panel</p>
+
+  <form id="loginForm" autocomplete="off">
+    <label for="username" data-i18n="user">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+
+    <label for="password" data-i18n="pass">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+    <button type="submit" id="submitBtn" data-i18n="signin">Sign in</button>
+    <div class="err" id="err"></div>
+  </form>
+
+  <div class="foot">
+    <button type="button" id="langBtn">العربية</button>
+    <button type="button" id="themeBtn">☀ / 🌙</button>
+  </div>
+</div>
+
+<script>
+const I18N = {
+  en:{sub:"Sign in to the control panel",user:"Username",pass:"Password",signin:"Sign in",
+      bad:"Invalid username or password",neterr:"Network error, please try again",lang:"العربية"},
+  ar:{sub:"سجّل الدخول إلى لوحة التحكم",user:"اسم المستخدم",pass:"كلمة المرور",signin:"تسجيل الدخول",
+      bad:"اسم المستخدم أو كلمة المرور غير صحيحة",neterr:"خطأ في الشبكة، حاول مرة أخرى",lang:"English"}
+};
+let lang = localStorage.getItem("ng_lang") || "en";
+function applyLang(){
+  const t = I18N[lang];
+  document.querySelectorAll("[data-i18n]").forEach(el=>{ el.textContent = t[el.dataset.i18n]; });
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang==="ar" ? "rtl" : "ltr";
+  document.body.classList.toggle("rtl", lang==="ar");
+  langBtn.textContent = t.lang;
+}
+langBtn.onclick = ()=>{ lang = lang==="en"?"ar":"en"; localStorage.setItem("ng_lang",lang); applyLang(); };
+
+let theme = localStorage.getItem("ng_theme") || "dark";
+function applyTheme(){ document.documentElement.dataset.theme = theme; }
+themeBtn.onclick = ()=>{ theme = theme==="dark"?"light":"dark"; localStorage.setItem("ng_theme",theme); applyTheme(); };
+
+applyTheme(); applyLang();
+
+const form = document.getElementById("loginForm");
+const err = document.getElementById("err");
+const btn = document.getElementById("submitBtn");
+form.addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  err.classList.remove("show");
+  btn.disabled = true;
+  try{
+    const res = await fetch("/api/login", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        username: document.getElementById("username").value,
+        password: document.getElementById("password").value
+      })
+    });
+    if(res.ok){ location.href = "/"; return; }
+    err.textContent = I18N[lang].bad; err.classList.add("show");
+  }catch(_){
+    err.textContent = I18N[lang].neterr; err.classList.add("show");
+  }finally{ btn.disabled = false; }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,194 @@
+# NullGate WAF — Production Config (Cloud/VPS)
+# This configuration is tuned for cloud deployment with automatic HTTPS.
+
+server:
+  listen_addr: ":8080"  # Internal (auto-TLS handles 80/443 externally)
+  target_backend: "http://127.0.0.1:3000"  # Your backend application
+  serve_landing: false  # Set true to serve the NullGate landing page at "/" instead of proxying it
+
+  # Automatic HTTPS with Let's Encrypt
+  auto_tls: true
+  auto_tls_domains:
+    - "example.com"
+    - "www.example.com"
+  auto_tls_cache_dir: "/var/lib/nullgate/autocert"
+  auto_tls_email: "admin@example.com"  # ACME account contact
+
+  # Manual TLS (alternative to auto_tls)
+  enable_tls: false
+  tls_cert: ""
+  tls_key: ""
+
+  # Timeouts (seconds)
+  read_timeout_sec: 15
+  read_header_timeout_sec: 5
+  write_timeout_sec: 15
+  idle_timeout_sec: 60
+  max_header_bytes: 1048576
+
+  trusted_proxies: []  # If behind a load balancer, add its IP
+
+protocol:
+  max_url_length: 8192
+  max_header_count: 60
+  max_query_params: 128
+  max_method_length: 16
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+  strict_version_check: true
+  enforce_content_type: true
+  reject_chunked_bodies: false
+  reject_content_length_mismatch: true
+  reject_conflicting_encoding: true
+  max_allowed_content_types:
+    - "application/x-www-form-urlencoded"
+    - "multipart/form-data"
+    - "application/json"
+    - "text/plain"
+    - "application/xml"
+    - "text/xml"
+    - "application/octet-stream"
+  block_null_bytes: true
+  block_control_chars: true
+  max_request_size: 33554432  # 32 MB
+
+rules:
+  paranoia_level: 2  # 1=permissive, 2=balanced, 3=strict, 4=paranoid
+  anomaly_threshold: 8
+  block_on_critical: true
+  rule_actions:
+    critical: "block"
+    high: "block"
+    medium: "log"
+    low: "log"
+
+decoding:
+  max_decode_depth: 5
+  max_payload_size: 10485760  # 10 MB
+  max_request_size: 33554432  # 32 MB
+  enable_gzip_scan: true
+  enable_deflate_scan: true
+  enable_brotli_scan: false
+  enable_json_scan: true
+  enable_multipart_scan: true
+  enable_base64_scan: true
+  enable_hex_scan: true
+  enable_unicode_scan: true
+  enable_comment_scan: true
+  enable_whitespace_scan: true
+
+rate_limit:
+  enabled: true
+  requests_per_second: 10
+  burst_size: 30
+  escalation_after: 10
+  block_after: 20
+  block_duration_sec: 300
+  cleanup_interval_sec: 60
+  per_ip: true
+  per_route: false
+
+pow:
+  enabled: false
+  difficulty: 4
+  challenge_ttl: 300
+  hmac_secret: "CHANGE_ME_TO_A_RANDOM_32_BYTE_HEX"  # Generate with: ./nullgate --gen-secret
+
+bot:
+  enabled: true
+  block_known_bots: true
+  require_sec_fetch: false
+  block_empty_ua: true
+
+behavior:
+  enabled: true
+  max_path_depth: 12
+  max_extensions_in_path: 8
+  consecutive_block_threshold: 5
+  cooldown_sec: 600
+  track_empty_ua: true
+  track_suspicious_ua: true
+  track_methods: true
+  block_scanner_probe: true
+  scanner_block_sec: 3600
+
+csrf:
+  enabled: true
+  token_ttl_min: 30
+  exclude_paths:
+    - "/healthz"
+    - "/metrics"
+  exclude_methods:
+    - "GET"
+    - "HEAD"
+    - "OPTIONS"
+
+response:
+  enabled: true
+  add_security_headers: true
+  strip_server_header: true
+  strip_x_powered_by: true
+  add_csp: true
+  add_hsts: false  # Set true after HTTPS is working
+  redact_cookies: true
+  redact_headers:
+    - "authorization"
+    - "x-api-key"
+    - "proxy-authorization"
+    - "cookie"
+
+honeypot:
+  enabled: true
+  probe_paths:
+    - "/wp-login.php"
+    - "/wp-admin"
+    - "/.env"
+    - "/.git/config"
+    - "/phpinfo.php"
+    - "/server-status"
+    - "/actuator"
+    - "/console"
+    - "/cgi-bin/"
+    - "/shell.php"
+    - "/admin.php"
+  block_duration_sec: 3600
+  log_only: false
+
+tarpit:
+  enabled: true
+  max_delay_ms: 30000
+  min_delay_ms: 1000
+  step_ms: 2000
+  request_count_threshold: 100
+  window_sec: 10
+
+admin:
+  enabled: true
+  listen_addr: "127.0.0.1:9091"  # Localhost only (use SSH tunnel)
+  username: "admin"
+  password_hash: ""  # Generate: echo -n "password" | sha256sum, then prefix with "sha256:"
+  read_only: false
+  require_localhost: true
+  session_ttl_min: 720  # 12 hours
+
+metrics:
+  enabled: true
+  path: "/metrics"
+  prometheus_format: true
+
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"
+  output: "stdout"
+  file_path: "logs/waf.log"
+  max_size_mb: 100
+  max_backups: 7
+  max_age_days: 30
+  enable_access_log: true
+  access_log_target: "stdout"
+
+ip:
+  trusted_proxies: []
+  trust_x_forwarded_for: false
+  trust_x_real_ip: false
+  max_forwarded_chain: 5
+  enable_geolocation: false

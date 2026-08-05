@@ -1,0 +1,74 @@
+version: '3.8'
+
+# NullGate WAF — Production Docker Compose
+# Deploy to cloud VPS with automatic Let's Encrypt HTTPS
+
+services:
+  nullgate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: nullgate-waf
+    restart: unless-stopped
+
+    ports:
+      - "80:80"       # HTTP (ACME challenges + redirect to HTTPS)
+      - "443:443"     # HTTPS (auto-provisioned certificate)
+
+    volumes:
+      # Config (read-only)
+      - ../configs/config.yaml:/etc/nullgate/config.yaml:ro
+      # Let's Encrypt certificate cache (persistent)
+      - autocert-cache:/var/lib/nullgate/autocert
+      # Optional: persistent logs
+      - ./logs:/var/log/nullgate
+
+    environment:
+      # Override via .env file or docker-compose.override.yml
+      - NULLGATE_CONFIG=/etc/nullgate/config.yaml
+
+    # Security hardening
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # Required for binding to ports 80/443
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: your backend application
+  # backend:
+  #   image: your-app:latest
+  #   container_name: backend
+  #   restart: unless-stopped
+  #   expose:
+  #     - "3000"
+  #   environment:
+  #     - NODE_ENV=production
+  #   networks:
+  #     - internal
+
+networks:
+  default:
+    name: nullgate-net
+  # internal:
+  #   internal: true  # Backend isolated from internet
+
+volumes:
+  autocert-cache:
+    driver: local

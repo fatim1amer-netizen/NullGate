@@ -1,0 +1,50 @@
+# Binaries
+nullgate
+nullgate.exe
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage & profiling
+coverage.out
+coverage.html
+*.coverprofile
+
+# Logs (runtime output)
+logs/
+*.log
+
+# Secrets & production config (NEVER commit!)
+*.secret
+*-prod.yaml
+*-local.yaml
+.env
+.env.*
+!.env.example
+
+# Auto-TLS certificates (Let's Encrypt cache)
+autocert-cache/
+*.pem
+*.key
+*.crt
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build caches
+/tmp/
+/dist/
+vendor/
+
+# Claude Code session files
+.claude/
