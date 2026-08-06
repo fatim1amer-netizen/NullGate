@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Demo backend (vulnerable app - only for testing)
+  backend:
+    build:
+      context: .
+      dockerfile: examples/vulnerable-backend/Dockerfile
+    container_name: nullgate-backend
+    restart: unless-stopped
+    networks:
+      - nullgate-internal
+    environment:
+      - PORT=3000
+    # Backend is NEVER exposed publicly - only via WAF
+    expose:
+      - "3000"
+
+  # NullGate WAF
+  waf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nullgate-waf
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # Public proxy
+      - "9091:9091"   # Admin dashboard (will be tunneled)
+    networks:
+      - nullgate-internal
+    depends_on:
+      - backend
+    environment:
+      - TARGET_BACKEND=http://backend:3000
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/config.yaml", "--admin"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Cloudflare Tunnel (creates public HTTPS URL automatically)
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: nullgate-tunnel
+    restart: unless-stopped
+    networks:
+      - nullgate-internal
+    depends_on:
+      - waf
+    command: tunnel --no-autoupdate --url http://waf:9091
+    environment:
+      - TUNNEL_METRICS=0.0.0.0:9099
+
+networks:
+  nullgate-internal:
+    driver: bridge
+
+# Usage:
+# 1. docker-compose -f docker-compose-public.yml up -d
+# 2. docker-compose -f docker-compose-public.yml logs tunnel
+# 3. Look for the public URL: https://xxxxx.trycloudflare.com
+# 4. Login with: admin / admin123 (CHANGE THIS!)

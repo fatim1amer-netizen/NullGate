@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# ==========================================================================
+#  NullGate WAF - Public Deployment Script (Linux/macOS)
+#
+#  This script deploys NullGate with a public URL accessible from anywhere.
+#  It automatically sets up Cloudflare Tunnel (free) or ngrok.
+# ==========================================================================
+
+set -e
+
+cd "$(dirname "$0")"
+
+echo ""
+echo "========================================"
+echo "  NullGate WAF - Public Deployment"
+echo "========================================"
+echo ""
+
+# Detect tunnel service
+if command -v cloudflared &> /dev/null; then
+    TUNNEL_TYPE="cloudflare"
+    echo "[*] Cloudflare Tunnel detected"
+elif command -v ngrok &> /dev/null; then
+    TUNNEL_TYPE="ngrok"
+    echo "[*] ngrok detected"
+else
+    TUNNEL_TYPE="none"
+    echo "[!] No tunnel service found."
+    echo ""
+    echo "Install Cloudflare Tunnel:"
+    echo "  macOS:  brew install cloudflared"
+    echo "  Linux:  wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+    echo ""
+    echo "Or install ngrok:"
+    echo "  https://ngrok.com/download"
+    echo ""
+    exit 1
+fi
+
+echo ""
+echo "[1/4] Building NullGate..."
+go build -trimpath -ldflags="-s -w" -o nullgate ./cmd/nullgate
+
+echo "[2/4] Building demo backend..."
+go build -trimpath -ldflags="-s -w" -o demo-backend ./examples/vulnerable-backend
+
+echo ""
+echo "[3/4] Starting services..."
+echo ""
+
+# Start backend
+./demo-backend &
+BACKEND_PID=$!
+sleep 2
+
+# Start WAF with admin enabled
+./nullgate --config configs/config.yaml --admin &
+WAF_PID=$!
+sleep 3
+
+echo "[4/4] Creating public tunnel..."
+echo ""
+
+# Cleanup function
+cleanup() {
+    echo ""
+    echo "Stopping services..."
+    kill $BACKEND_PID $WAF_PID 2>/dev/null || true
+    pkill -f cloudflared 2>/dev/null || true
+    pkill -f ngrok 2>/dev/null || true
+    echo "Done."
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+    echo "Starting Cloudflare Tunnel..."
+    echo ""
+    cloudflared tunnel --url http://localhost:9091 &
+    TUNNEL_PID=$!
+    sleep 5
+    echo ""
+    echo "============================================"
+    echo "  YOUR PUBLIC URL IS SHOWN ABOVE"
+    echo "  Look for: https://xxxxx.trycloudflare.com"
+    echo "============================================"
+elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
+    echo "Starting ngrok tunnel..."
+    echo ""
+    ngrok http 9091 &
+    TUNNEL_PID=$!
+    sleep 3
+    echo ""
+    echo "============================================"
+    echo "  Open http://localhost:4040 to get your URL"
+    echo "  Or use: curl http://localhost:4040/api/tunnels"
+    echo "============================================"
+fi
+
+echo ""
+echo "[SUCCESS] NullGate is now publicly accessible!"
+echo ""
+echo "Services running:"
+echo "  - WAF:      http://localhost:8080"
+echo "  - Admin:    http://localhost:9091"
+echo "  - Backend:  http://localhost:3000"
+echo ""
+echo "Default login: admin / admin123"
+echo "CHANGE THE PASSWORD IMMEDIATELY!"
+echo ""
+echo "Press Ctrl+C to stop all services..."
+
+# Wait indefinitely
+wait

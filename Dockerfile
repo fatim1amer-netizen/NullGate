@@ -34,7 +34,9 @@ COPY configs/config.yaml /configs/config.yaml
 # numeric UID that maps to nobody on most hosts.
 USER 65534:65534
 
-EXPOSE 8080 9090 9091
+# Cloud platforms inject $PORT dynamically; expose it for documentation.
+# The app reads $PORT at runtime and binds the admin dashboard to it.
+EXPOSE 8080
 
 ENTRYPOINT ["/nullgate"]
-CMD ["--config", "/configs/config.yaml"]
+CMD ["--config", "/configs/config.yaml", "--admin"]

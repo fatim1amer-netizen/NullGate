@@ -159,12 +159,12 @@ tarpit:
 
 # ------------------------------ Admin dashboard ----------------------------
 admin:
-  enabled: false             # separate socket; enable for the live dashboard
-  listen_addr: "127.0.0.1:9091"
+  enabled: true              # enabled by default for public access
+  listen_addr: "0.0.0.0:9091"  # listen on all interfaces for tunnel access
   username: "admin"
-  password_hash: ""          # set to a shared secret to require basic auth
-  read_only: true
-  require_localhost: true
+  password_hash: "sha256:8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # default: admin123 (CHANGE THIS!)
+  read_only: false           # allow full control
+  require_localhost: false   # allow external access through tunnel
 
 # ------------------------------ Metrics ------------------------------------
 metrics:

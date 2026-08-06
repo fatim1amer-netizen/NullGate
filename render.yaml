@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: nullgate-waf
+    runtime: docker
+    repo: https://github.com/fat1322im-hub/NullGate
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: PORT
+        sync: false
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: TARGET_BACKEND
+        value: https://jsonplaceholder.typicode.com
+    healthCheckPath: /healthz
