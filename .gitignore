@@ -48,3 +48,4 @@ vendor/
 
 # Claude Code session files
 .claude/
+.aider*
