@@ -17,7 +17,9 @@ primary_region = "iad"
   cpus = 1
 
 [env]
-  TARGET_BACKEND = "https://jsonplaceholder.typicode.com"
+  NULLGATE_CONFIG = "/configs/graduation-platform.yaml"
+  TARGET_BACKEND = "https://7a08f55f.graduation-platform-2026.pages.dev"
+  UPSTREAM_HOST = "7a08f55f.graduation-platform-2026.pages.dev"
 
 [checks]
   [checks.healthz]

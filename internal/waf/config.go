@@ -2,6 +2,7 @@ package waf
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -22,7 +23,6 @@ type Config struct {
 	Behavior  BehaviorConfig      `yaml:"behavior"`
 	CSRF      CSRFConfig          `yaml:"csrf"`
 	Response  ResponseConfig      `yaml:"response"`
-	Honeypot  HoneypotConfig      `yaml:"honeypot"`
 	Tarpit    TarpitConfig        `yaml:"tarpit"`
 	Admin     AdminConfig         `yaml:"admin"`
 	Metrics   MetricsConfig       `yaml:"metrics"`
@@ -111,7 +111,7 @@ func DefaultConfig() *Config {
 			Enabled:         true,
 			BlockKnownBots:  true,
 			RequireSecFetch: false,
-			BlockEmptyUA:    true,
+			BlockEmptyUA:    false,
 		},
 		Behavior: BehaviorConfig{
 			Enabled:                   true,
@@ -140,12 +140,6 @@ func DefaultConfig() *Config {
 			AddHSTS:            false,
 			RedactCookies:      true,
 			RedactHeaders:      []string{"authorization", "x-api-key", "proxy-authorization", "cookie"},
-		},
-		Honeypot: HoneypotConfig{
-			Enabled:          true,
-			ProbePaths:       []string{"/wp-login.php", "/wp-admin", "/.env", "/.git/config", "/phpinfo.php", "/server-status", "/actuator", "/console", "/cgi-bin/", "/shell.php", "/admin.php"},
-			BlockDurationSec: 3600,
-			LogOnly:          false,
 		},
 		Tarpit: TarpitConfig{
 			Enabled:               true,
@@ -192,11 +186,12 @@ func DefaultConfig() *Config {
 type ServerConfig struct {
 	ListenAddr        string   `yaml:"listen_addr"`
 	TargetBackend     string   `yaml:"target_backend"`
+	UpstreamHost      string   `yaml:"upstream_host"`
 	ServeLanding      bool     `yaml:"serve_landing"` // serve the NullGate landing page at "/" instead of proxying it
 	EnableTLS         bool     `yaml:"enable_tls"`
 	TLSCert           string   `yaml:"tls_cert"`
 	TLSKey            string   `yaml:"tls_key"`
-	AutoTLS           bool     `yaml:"auto_tls"`     // provision certs from Let's Encrypt
+	AutoTLS           bool     `yaml:"auto_tls"` // provision certs from Let's Encrypt
 	AutoTLSDomains    []string `yaml:"auto_tls_domains"`
 	AutoTLSCacheDir   string   `yaml:"auto_tls_cache_dir"` // where to persist issued certs
 	AutoTLSEmail      string   `yaml:"auto_tls_email"`     // ACME account contact
@@ -298,13 +293,6 @@ type ResponseConfig struct {
 	RedactHeaders      []string `yaml:"redact_headers"`
 }
 
-type HoneypotConfig struct {
-	Enabled          bool     `yaml:"enabled"`
-	ProbePaths       []string `yaml:"probe_paths"`
-	BlockDurationSec int      `yaml:"block_duration_sec"`
-	LogOnly          bool     `yaml:"log_only"`
-}
-
 type TarpitConfig struct {
 	Enabled               bool `yaml:"enabled"`
 	MaxDelayMS            int  `yaml:"max_delay_ms"`
@@ -360,6 +348,7 @@ func (c *Config) Print() {
 	fmt.Printf("───────────────────────────\n")
 	fmt.Printf("server.listen_addr:          %s\n", c.Server.ListenAddr)
 	fmt.Printf("server.target_backend:       %s\n", c.Server.TargetBackend)
+	fmt.Printf("server.upstream_host:        %s\n", c.Server.UpstreamHost)
 	fmt.Printf("server.tls:                  %v\n", c.Server.EnableTLS)
 	fmt.Printf("protocol.max_url_length:     %d\n", c.Protocol.MaxURLLength)
 	fmt.Printf("protocol.max_header_count:   %d\n", c.Protocol.MaxHeaderCount)
@@ -381,7 +370,6 @@ func (c *Config) Print() {
 		c.Bot.Enabled, c.Bot.BlockKnownBots, c.Bot.BlockEmptyUA)
 	fmt.Printf("behavior.enabled:            %v\n", c.Behavior.Enabled)
 	fmt.Printf("csrf.enabled:                %v (ttl %d min)\n", c.CSRF.Enabled, c.CSRF.TokenTTLMin)
-	fmt.Printf("honeypot.enabled:            %v (%d probe paths)\n", c.Honeypot.Enabled, len(c.Honeypot.ProbePaths))
 	fmt.Printf("tarpit.enabled:              %v\n", c.Tarpit.Enabled)
 	fmt.Printf("response.harden:             %v\n", c.Response.Enabled)
 	fmt.Printf("admin.enabled:               %v (%s)\n", c.Admin.Enabled, c.Admin.ListenAddr)
@@ -419,6 +407,19 @@ func ValidateConfig(cfg *Config) error {
 	}
 	if cfg.Server.TargetBackend == "" {
 		return fmt.Errorf("server.target_backend is required")
+	}
+	backend, err := url.Parse(cfg.Server.TargetBackend)
+	if err != nil || (backend.Scheme != "http" && backend.Scheme != "https") || backend.Hostname() == "" {
+		return fmt.Errorf("server.target_backend must be an absolute http or https URL")
+	}
+	if strings.ContainsAny(cfg.Server.UpstreamHost, "/\\ \t\r\n") {
+		return fmt.Errorf("server.upstream_host must contain only a host name and optional port")
+	}
+	if cfg.Server.UpstreamHost != "" {
+		hostURL, err := url.Parse("http://" + cfg.Server.UpstreamHost)
+		if err != nil || hostURL.Hostname() == "" || hostURL.Host != cfg.Server.UpstreamHost {
+			return fmt.Errorf("server.upstream_host is invalid")
+		}
 	}
 	if cfg.Server.EnableTLS {
 		if cfg.Server.TLSCert == "" || cfg.Server.TLSKey == "" {

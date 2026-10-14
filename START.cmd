@@ -35,28 +35,26 @@ echo [OK] cloudflared downloaded
 echo.
 echo Building NullGate...
 go build -o nullgate.exe .\cmd\nullgate || goto :error
-go build -o demo-backend.exe .\examples\vulnerable-backend || goto :error
 
 echo.
 echo Starting services...
-start /B demo-backend.exe
-timeout /t 2 /nobreak >nul
 
-start /B nullgate.exe --config configs\config.yaml --admin
+start /B nullgate.exe --config configs\graduation-platform.yaml --admin
 timeout /t 4 /nobreak >nul
 
 echo.
 echo Creating public URL...
 echo.
 echo ========================================
-start "" cloudflared tunnel --url http://localhost:9091
+start "" cloudflared tunnel --url http://localhost:8080
 
 echo.
 echo YOUR PUBLIC URL WILL APPEAR ABOVE
 echo Look for: https://xxxxx.trycloudflare.com
 echo.
 echo Share that URL with anyone!
-echo Login: admin / admin123
+echo Upstream: https://7a08f55f.graduation-platform-2026.pages.dev
+echo Public tunnel exposes the WAF proxy; admin remains local-only.
 echo.
 echo Press Ctrl+C to stop
 pause

@@ -24,7 +24,7 @@ var landingHTML string
 // ordered chain of defenses, cheapest and most decisive first, so that
 // obviously-hostile traffic is rejected before expensive deep inspection runs:
 //
-//	protocol → blocklist → honeypot → rate limit → PoW → bot → deep inspection
+//	protocol → blocklist → rate limit → PoW → bot → deep inspection
 //	→ CSRF → tarpit → proxy(+response hardening)
 //
 // The engine is fail-closed: any subsystem error results in the request being
@@ -39,7 +39,6 @@ type Engine struct {
 	pow         *PoWValidator
 	bot         *BotDetector
 	behavior    *BehaviorTracker
-	honeypot    *Honeypot
 	tarpit      *Tarpit
 	csrf        *CSRFManager
 	response    *ResponseGuard
@@ -68,6 +67,9 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	responseGuard := NewResponseGuard(cfg.Response)
 	proxy.Director = func(r *http.Request) {
 		origDirector(r)
+		if cfg.Server.UpstreamHost != "" {
+			r.Host = cfg.Server.UpstreamHost
+		}
 		sanitizeForwardHeaders(r)
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
@@ -90,7 +92,6 @@ func NewEngine(cfg *Config) (*Engine, error) {
 		pow:         NewPoWValidator(cfg.PoW),
 		bot:         NewBotDetector(cfg.Bot),
 		blocklist:   blocklist,
-		honeypot:    NewHoneypot(cfg.Honeypot, blocklist),
 		tarpit:      NewTarpit(cfg.Tarpit),
 		csrf:        NewCSRFManager(cfg.CSRF),
 		response:    responseGuard,
@@ -145,7 +146,7 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Shared blocklist (behavioral/honeypot escalations).
+	// 2. Shared blocklist (behavioral escalation).
 	if e.blocklist.Blocked(clientIP) {
 		e.deny(w, r, clientIP, "blocklist", "client is on the blocklist", http.StatusForbidden)
 		return
@@ -162,13 +163,6 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.response.Apply(w.Header(), r)
 		_, _ = io.WriteString(w, landingHTML)
 		e.metrics.ObserveLatency(time.Since(start))
-		return
-	}
-
-	// 3. Honeypot probes — instant block, no further processing.
-	if triggered, reason := e.honeypot.Triggered(r, clientIP); triggered {
-		e.metrics.IncHoneypot()
-		e.deny(w, r, clientIP, "honeypot", reason, http.StatusNotFound)
 		return
 	}
 
@@ -293,6 +287,7 @@ func statusOrDefault(s int) int {
 // fully-decoded form (see Decoder.Variants).
 func (e *Engine) inspect(r *http.Request, body []byte) (ScanResult, bool) {
 	var agg ScanResult
+	seenRules := make(map[string]struct{})
 
 	scan := func(value string) bool {
 		if value == "" {
@@ -300,15 +295,19 @@ func (e *Engine) inspect(r *http.Request, body []byte) (ScanResult, bool) {
 		}
 		for _, variant := range e.decoder.Variants(value) {
 			res := e.rules.Scan(variant)
-			if len(res.Matches) > 0 {
-				agg.Matches = append(agg.Matches, res.Matches...)
-				agg.AnomalyScore += res.AnomalyScore
-				if res.HasCritical {
+			for _, match := range res.Matches {
+				if _, seen := seenRules[match.RuleID]; seen {
+					continue
+				}
+				seenRules[match.RuleID] = struct{}{}
+				agg.Matches = append(agg.Matches, match)
+				agg.AnomalyScore += match.Severity.Score()
+				if match.Severity == SevCritical {
 					agg.HasCritical = true
 				}
-				if agg.Blocked(&e.config.Rules) {
-					return true
-				}
+			}
+			if agg.Blocked(&e.config.Rules) {
+				return true
 			}
 		}
 		return false

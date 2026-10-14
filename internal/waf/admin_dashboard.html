@@ -338,7 +338,7 @@ const I18N = {
     "posture.paranoia":"Paranoia Level","posture.anomaly":"Anomaly Threshold","posture.backend":"Backend",
     "posture.listen":"Public Listener","posture.tls":"TLS","posture.failclosed":"Fail-Closed","posture.on":"ON","posture.off":"OFF",
     "layer.protocol":"Protocol","layer.decoding":"Decoder","layer.rules":"Rule Engine","layer.rate_limit":"Rate Limit",
-    "layer.pow":"Proof-of-Work","layer.bot":"Bot Guard","layer.honeypot":"Honeypot","layer.behavior":"Behavior",
+    "layer.pow":"Proof-of-Work","layer.bot":"Bot Guard","layer.behavior":"Behavior",
     "layer.csrf":"CSRF","layer.tarpit":"Tarpit","layer.response":"Hardening","layer.disabled":"disabled"
   },
   ar:{
@@ -361,7 +361,7 @@ const I18N = {
     "posture.paranoia":"مستوى التشدد","posture.anomaly":"عتبة الشذوذ","posture.backend":"الخادم الخلفي",
     "posture.listen":"المنفذ العام","posture.tls":"TLS","posture.failclosed":"الرفض الافتراضي","posture.on":"مُفعّل","posture.off":"مُعطّل",
     "layer.protocol":"البروتوكول","layer.decoding":"فك التشفير","layer.rules":"محرك القواعد","layer.rate_limit":"تحديد المعدل",
-    "layer.pow":"إثبات العمل","layer.bot":"حارس الروبوتات","layer.honeypot":"مصيدة","layer.behavior":"السلوك",
+    "layer.pow":"إثبات العمل","layer.bot":"حارس الروبوتات","layer.behavior":"السلوك",
     "layer.csrf":"CSRF","layer.tarpit":"المصيدة الزمنية","layer.response":"التحصين","layer.disabled":"معطّل"
   }
 };
@@ -472,8 +472,8 @@ function renderCats(cats){
 
 function renderLayers(m,info){
   const map={protocol:m.protocol_blocked,rate_limit:m.rate_limited,pow:m.pow_challenges,bot:m.bot_blocked,
-    honeypot:m.honeypot_hits,behavior:m.behavior_blocked,csrf:m.csrf_blocked};
-  const order=["protocol","rules","decoding","rate_limit","bot","honeypot","behavior","csrf","pow","tarpit","response"];
+    behavior:m.behavior_blocked,csrf:m.csrf_blocked};
+  const order=["protocol","rules","decoding","rate_limit","bot","behavior","csrf","pow","tarpit","response"];
   const enabled={}; (info.layers||[]).forEach(l=>enabled[l.key]=l.enabled);
   document.getElementById("layers").innerHTML = order.map(k=>{
     const on = enabled[k]!==false;

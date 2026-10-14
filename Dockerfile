@@ -2,7 +2,7 @@
 # Stage 1 builds a fully static binary; stage 2 ships it on a distroless-style
 # scratch image so the runtime attack surface is a single ~11 MB executable.
 
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 
 # Build tooling and CA certs (copied into the final image for outbound TLS).
 RUN apk add --no-cache ca-certificates git && update-ca-certificates
@@ -29,14 +29,15 @@ FROM scratch AS runtime
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /out/nullgate /nullgate
 COPY configs/config.yaml /configs/config.yaml
+COPY configs/graduation-platform.yaml /configs/graduation-platform.yaml
 
 # Run as an unprivileged, non-root UID. scratch has no /etc/passwd, so we use a
 # numeric UID that maps to nobody on most hosts.
 USER 65534:65534
 
-# Cloud platforms inject $PORT dynamically; expose it for documentation.
-# The app reads $PORT at runtime and binds the admin dashboard to it.
+# Cloud platforms inject $PORT dynamically; the app binds its public WAF
+# listener to that port. The admin dashboard is not exposed by this image.
 EXPOSE 8080
 
 ENTRYPOINT ["/nullgate"]
-CMD ["--config", "/configs/config.yaml", "--admin"]
+CMD ["--config", "/configs/config.yaml"]

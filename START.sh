@@ -29,28 +29,26 @@ echo ""
 
 echo "Building NullGate..."
 go build -o nullgate ./cmd/nullgate
-go build -o demo-backend ./examples/vulnerable-backend
 
 echo ""
 echo "Starting services..."
-./demo-backend &
-sleep 2
 
-./nullgate --config configs/config.yaml --admin &
+./nullgate --config configs/graduation-platform.yaml --admin &
 sleep 4
 
 echo ""
 echo "Creating public URL..."
 echo ""
 echo "========================================"
-cloudflared tunnel --url http://localhost:9091 &
+cloudflared tunnel --url http://localhost:8080 &
 
 echo ""
 echo "YOUR PUBLIC URL WILL APPEAR ABOVE"
 echo "Look for: https://xxxxx.trycloudflare.com"
 echo ""
 echo "Share that URL with anyone!"
-echo "Login: admin / admin123"
+echo "Upstream: https://7a08f55f.graduation-platform-2026.pages.dev"
+echo "Public tunnel exposes the WAF proxy; admin remains local-only."
 echo ""
 echo "Press Ctrl+C to stop"
 

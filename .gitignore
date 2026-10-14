@@ -49,3 +49,8 @@ vendor/
 # Claude Code session files
 .claude/
 .aider*
+
+# The nullgate CLI source directory is not a generated binary.
+!cmd/
+!cmd/nullgate/
+!cmd/nullgate/main.go

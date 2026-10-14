@@ -32,15 +32,14 @@ denied and nothing downstream runs.
 ├──────────────────────────────────────────────────────────────────────┤
 │ 1. Protocol guard         — method, URL/header limits, smuggling,     │
 │                             null/control bytes, content-type          │
-│ 2. Blocklist              — shared store fed by honeypot + behavior   │
-│ 3. Honeypot               — /.env, /wp-login.php … instant block      │
-│ 4. Rate limiter           — token bucket → Allow / PoW / Block        │
-│ 5. Proof-of-Work          — HMAC-bound challenge under attack         │
-│ 6. Bot mitigation         — scanner UAs, empty UA, impoverished hdrs  │
-│ 7. Deep inspection        — decode → 64 rules over path/query/hdr/body│
-│ 8. Behavioral analysis    — patterns over time (scanner fingerprint)  │
-│ 9. CSRF                   — double-submit, single-use tokens          │
-│ 10. Tarpit                — escalating delay for persistent floods    │
+│ 2. Blocklist              — shared store fed by behavioral analysis   │
+│ 3. Rate limiter           — token bucket → Allow / PoW / Block        │
+│ 4. Proof-of-Work          — HMAC-bound challenge under attack         │
+│ 5. Bot mitigation         — high-confidence scanner signatures        │
+│ 6. Deep inspection        — decode → 64 rules over path/query/hdr/body│
+│ 7. Behavioral analysis    — patterns over time (scanner fingerprint)  │
+│ 8. CSRF                   — double-submit, single-use tokens          │
+│ 9. Tarpit                 — escalating delay for persistent floods    │
 └──────────────────────────────────────────────────────────────────────┘
    │  (all layers passed)
    ▼
@@ -102,9 +101,8 @@ individually-weak signals still accumulates into a block.
 | Rate limiter | `ratelimit.go` | Per-IP token bucket; graduated Allow → PoW → Block. |
 | Proof-of-Work | `pow.go` | Stateless HMAC-SHA256 challenge bound to `IP‖timestamp`; bit-level difficulty; TTL-bounded so solutions can't be replayed. |
 | Bot detector | `bot.go` | Scanner/tool UA signatures, empty UA, scripted-client header fingerprints. |
-| Honeypot | `honeypot.go` | Known-probe paths; one hit → shared blocklist. |
 | Behavioral tracker | `behavior.go` | Path/method spread, consecutive blocks → scanner escalation. |
-| Tarpit | `honeypot.go` | Escalating latency that ties up an attacker's own connections. |
+| Tarpit | `tarpit.go` | Escalating latency for persistent high-volume clients. |
 | Blocklist | `blocklist.go` | Shared, TTL-expiring, IP+CIDR; never persisted (NAT-friendly). |
 
 ---
@@ -128,5 +126,5 @@ individually-weak signals still accumulates into a block.
   latency, proxy errors, tracked clients.
 - **Structured logs** (JSON or text) with per-block layer/reason/category.
 - **Live dashboard** on the admin socket, auto-refreshing.
-- **Self-test** (`--selftest`) runs a 51-case labeled corpus and reports
+- **Self-test** (`--selftest`) runs a labeled corpus and reports
   detection / false-positive rate — the competition correctness gate.

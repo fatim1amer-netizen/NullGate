@@ -38,34 +38,26 @@ else
 fi
 
 echo ""
-echo "[1/4] Building NullGate..."
+echo "[1/3] Building NullGate..."
 go build -trimpath -ldflags="-s -w" -o nullgate ./cmd/nullgate
 
-echo "[2/4] Building demo backend..."
-go build -trimpath -ldflags="-s -w" -o demo-backend ./examples/vulnerable-backend
-
 echo ""
-echo "[3/4] Starting services..."
+echo "[2/3] Starting NullGate in front of the real Graduation Platform site..."
 echo ""
-
-# Start backend
-./demo-backend &
-BACKEND_PID=$!
-sleep 2
 
 # Start WAF with admin enabled
-./nullgate --config configs/config.yaml --admin &
+./nullgate --config configs/graduation-platform.yaml --admin &
 WAF_PID=$!
 sleep 3
 
-echo "[4/4] Creating public tunnel..."
+echo "[3/3] Creating public tunnel..."
 echo ""
 
 # Cleanup function
 cleanup() {
     echo ""
     echo "Stopping services..."
-    kill $BACKEND_PID $WAF_PID 2>/dev/null || true
+    kill $WAF_PID 2>/dev/null || true
     pkill -f cloudflared 2>/dev/null || true
     pkill -f ngrok 2>/dev/null || true
     echo "Done."
@@ -77,7 +69,7 @@ trap cleanup SIGINT SIGTERM
 if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
     echo "Starting Cloudflare Tunnel..."
     echo ""
-    cloudflared tunnel --url http://localhost:9091 &
+    cloudflared tunnel --url http://localhost:8080 &
     TUNNEL_PID=$!
     sleep 5
     echo ""
@@ -88,7 +80,7 @@ if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
 elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
     echo "Starting ngrok tunnel..."
     echo ""
-    ngrok http 9091 &
+    ngrok http 8080 &
     TUNNEL_PID=$!
     sleep 3
     echo ""
@@ -103,11 +95,10 @@ echo "[SUCCESS] NullGate is now publicly accessible!"
 echo ""
 echo "Services running:"
 echo "  - WAF:      http://localhost:8080"
-echo "  - Admin:    http://localhost:9091"
-echo "  - Backend:  http://localhost:3000"
+echo "  - Admin:    http://localhost:9091 (local only)"
+echo "  - Upstream: https://7a08f55f.graduation-platform-2026.pages.dev"
 echo ""
-echo "Default login: admin / admin123"
-echo "CHANGE THE PASSWORD IMMEDIATELY!"
+echo "The public tunnel exposes the WAF proxy, not the admin dashboard."
 echo ""
 echo "Press Ctrl+C to stop all services..."
 

@@ -12,8 +12,8 @@ import (
 // positives. It runs the payloads through the exact same Decoder + RuleEngine
 // path the live pipeline uses, so the numbers reflect production behavior.
 //
-// This is the WAF's own proof of correctness: a single `nullgate --selftest`
-// produces a results matrix suitable for a competition demo or a CI gate.
+// This is a regression check over the included labeled corpus, not a proof of
+// production accuracy: a single `nullgate --selftest` shows each case's verdict.
 
 // TestCase is one labeled probe.
 type TestCase struct {
@@ -68,12 +68,19 @@ func RunSelfTest(cfg *Config) *SelfTestReport {
 
 	scan := func(payload string) (blocked bool, score int, cat Category) {
 		var agg ScanResult
+		seenRules := make(map[string]struct{})
 		for _, variant := range decoder.Variants(payload) {
 			res := rules.Scan(variant)
-			agg.Matches = append(agg.Matches, res.Matches...)
-			agg.AnomalyScore += res.AnomalyScore
-			if res.HasCritical {
-				agg.HasCritical = true
+			for _, match := range res.Matches {
+				if _, seen := seenRules[match.RuleID]; seen {
+					continue
+				}
+				seenRules[match.RuleID] = struct{}{}
+				agg.Matches = append(agg.Matches, match)
+				agg.AnomalyScore += match.Severity.Score()
+				if match.Severity == SevCritical {
+					agg.HasCritical = true
+				}
 			}
 		}
 		return agg.Blocked(&cfg.Rules), agg.AnomalyScore, agg.TopCategory()
@@ -160,7 +167,7 @@ func (r *SelfTestReport) String() string {
 		float64(r.Duration.Microseconds())/float64(max(r.Total, 1)))
 
 	if r.FalseNegatives == 0 && r.FalsePositives == 0 {
-		b.WriteString("\n✅ ALL CHECKS PASSED — 100% detection, 0% false positives.\n")
+		b.WriteString("\n✅ ALL LABELED CORPUS CASES PASSED — results apply only to this curated set.\n")
 	} else {
 		b.WriteString("\n⚠  Review the FAIL/MISS rows above.\n")
 	}
@@ -254,5 +261,10 @@ func selfTestCorpus() []TestCase {
 		{"Benign Arabic text", "benign", `مرحبا، هذا منتج رائع جدا وأنصح به`, false},
 		{"Benign phone", "benign", `+962-79-123-4567`, false},
 		{"Benign hex color", "benign", `background-color: #1a2b3c`, false},
+		{"Flutter main.dart asset", "benign", `/main.dart.js?v=1.0.0&build=release`, false},
+		{"Flutter service worker", "benign", `/flutter_service_worker.js?version=123456`, false},
+		{"Flutter API JSON", "benign", `{"title":"Graduation project","summary":"Academic project submission","status":"under review"}`, false},
+		{"Flutter base64 image asset", "benign", `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/wAAAABJRU5ErkJggg==`, false},
+		{"Flutter API query parameters", "benign", `/api/submissions?semester=2026&status=review&page=1`, false},
 	}
 }

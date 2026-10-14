@@ -109,8 +109,6 @@ hr
 
 echo "${Y}» Recon / scanners${N}"
 expect_block "sqlmap user-agent"         -A "sqlmap/1.7#stable" "$BASE/"
-expect_block "honeypot: /.env"           "${CURL_BROWSER[@]}" "$BASE/.env"
-expect_block "honeypot: wp-login"        "${CURL_BROWSER[@]}" "$BASE/wp-login.php"
 hr
 
 TOTAL=$((PASS+FAIL))

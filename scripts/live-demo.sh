@@ -116,7 +116,7 @@ echo ""
 if [[ $BLOCKED -eq $TOTAL ]]; then
   echo -e "${C_GREEN}${C_BOLD}✅ PERFECT SCORE — All attacks blocked!${C_RESET}"
 elif [[ $BLOCKED -ge $((TOTAL * 90 / 100)) ]]; then
-  echo -e "${C_YELLOW}${C_BOLD}⚠️  GOOD — Most attacks blocked, tune paranoia level for 100%${C_RESET}"
+  echo -e "${C_YELLOW}${C_BOLD}⚠️  GOOD — Review missed samples and tune rules against the labeled corpus.${C_RESET}"
 else
   echo -e "${C_RED}${C_BOLD}❌ FAILED — Significant attacks passed through${C_RESET}"
 fi

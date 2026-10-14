@@ -1,12 +1,13 @@
-# 🌐 NullGate WAF - Public Deployment Guide
+# 🌐 NullGate WAF - Public Access Guide
 
-هذا الدليل يشرح كيفية تشغيل NullGate كخدمة عامة يمكن الوصول إليها من أي مكان في العالم.
+هذا الدليل يشرح طريقتين مختلفتين: نفقًا مؤقتًا للتجربة من جهازك، ونشرًا سحابيًا
+مستقلًا عن جهازك. لا تستخدم النفق المؤقت كاستضافة إنتاجية.
 
 ---
 
 ## ⚡ النشر السريع (Quick Deploy)
 
-### الطريقة 1: سكربت تلقائي (أسهل طريقة)
+### الطريقة 1: نفق مؤقت للتجربة (يتطلب بقاء جهازك مشغّلًا)
 
 **Windows:**
 ```cmd
@@ -24,10 +25,10 @@ chmod +x deploy-public.sh
 https://random-name-1234.trycloudflare.com
 ```
 
-### الطريقة 2: Docker Compose (الأفضل للإنتاج)
+### الطريقة 2: Docker Compose مع نفق مؤقت
 
 ```bash
-# تشغيل كل شيء (WAF + Backend + Tunnel)
+# تشغيل WAF أمام موقع التخرج الحقيقي عبر نفق عام
 docker-compose -f docker-compose-public.yml up -d
 
 # عرض الرابط العام
@@ -37,29 +38,18 @@ docker-compose -f docker-compose-public.yml logs tunnel
 # https://random-name-5678.trycloudflare.com
 ```
 
+هذه الطريقة ما زالت تعتمد على Docker و`cloudflared` يعملان على جهازك. للنشر
+المستقل على الإنترنت استخدم إعدادات Render أو Fly.io الموضحة في
+[`DEPLOY-CLOUD.md`](DEPLOY-CLOUD.md).
+
 ---
 
-## 🔐 الأمان (IMPORTANT!)
+## 🔐 الأمان
 
-### كلمة المرور الافتراضية
-
-```
-Username: admin
-Password: admin123
-```
-
-**⚠️ يجب تغيير كلمة المرور فوراً!**
-
-لتغيير كلمة المرور:
-
-```bash
-# 1. إنشاء hash جديد
-echo -n "your-new-password" | sha256sum
-
-# 2. تعديل configs/config.yaml
-admin:
-  password_hash: "sha256:your-hash-here"
-```
+الرابط العام يمر عبر منفذ البروكسي `8080` ولا يعرّض لوحة التحكم. سكربتات
+النشر تفعّل لوحة التحكم محليًا على `127.0.0.1:9091`؛ ملف Docker Compose العام
+يتركها معطّلة. لا توجد كلمة مرور افتراضية أو بيانات دخول عامة. لا تنشر لوحة
+التحكم على الإنترنت؛ استخدم نفق SSH للوصول البعيد.
 
 ### تفعيل HTTPS (اختياري)
 
@@ -126,24 +116,29 @@ docker-compose -f docker-compose-public.yml up -d
 - أي مكان في العالم
 - بدون VPN أو إعدادات
 
-### 4. تسجيل الدخول
+### 4. الموقع خلف WAF
 
-عند فتح الرابط:
-1. Username: `admin`
-2. Password: `admin123` (غيّرها فوراً!)
-3. ستظهر لوحة التحكم الكاملة
+سكربتات النشر العامة وملف Docker Compose يستخدمون ملف الإعداد الذي يمرّر الموقع
+الحقيقي إلى Cloudflare Pages:
+
+```bash
+go run ./cmd/nullgate --config configs/graduation-platform.yaml
+```
+
+ثم وجّه اسم نطاق تملكه إلى NullGate. الـ backend الضعيف موجود للاختبارات المحلية
+فقط، عبر `docker-compose.yml` أو `scripts/quickstart.sh`.
 
 ---
 
-## 🎯 ميزات النشر العام
+## 🎯 خصائص النفق المؤقت
 
 ✅ **رابط واحد فقط** - لا حاجة لـ localhost  
 ✅ **HTTPS مجاني** - Cloudflare توفره تلقائياً  
-✅ **لا حاجة لـ VPS** - يعمل من جهازك  
+⚠️ **يعتمد على جهازك** - يتوقف الرابط عند إيقاف NullGate أو النفق أو الجهاز
 ✅ **لا إعدادات شبكة** - لا port forwarding أو firewall  
-✅ **متعدد اللغات** - واجهة عربية/إنجليزية  
-✅ **مصادقة آمنة** - SHA-256 + sessions  
-✅ **متوافق مع الموبايل** - responsive design  
+✅ **التطبيق خلف WAF** - الرابط المؤقت يمر عبر NullGate إلى backend المحدد
+✅ **لوحة التحكم منفصلة** - محلية افتراضيًا؛ لا تُعرَض عبر النفق العام
+✅ **لا بيانات دخول افتراضية** - لا ترسل رابط النفق إلى لوحة الإدارة
 
 ---
 
@@ -151,21 +146,21 @@ docker-compose -f docker-compose-public.yml up -d
 
 ### تخصيص المنفذ (Port)
 
-في `configs/config.yaml`:
+في ملف الإعداد الذي تستخدمه:
 
 ```yaml
 admin:
-  listen_addr: "0.0.0.0:9091"  # غيّر 9091 لأي منفذ آخر
+  listen_addr: "127.0.0.1:9091"  # اتركه محليًا واستخدم SSH للوصول البعيد
 ```
 
-### تشغيل بدون demo backend
+### تشغيل الموقع الحقيقي يدويًا
 
 ```bash
 # تشغيل WAF فقط
-./nullgate --config configs/config.yaml --admin
+./nullgate --config configs/graduation-platform.yaml --admin
 
 # ثم tunnel
-cloudflared tunnel --url http://localhost:9091
+cloudflared tunnel --url http://localhost:8080
 ```
 
 ### استخدام domain خاص (Cloudflare فقط)
@@ -209,7 +204,7 @@ docker-compose -f docker-compose-public.yml ps
 
 ### المشكلة: "Build failed"
 
-**الحل:** تأكد من تثبيت Go 1.21+
+**الحل:** تأكد من تثبيت Go 1.25+
 ```bash
 go version
 # يجب أن يظهر: go version go1.21 أو أعلى
@@ -220,14 +215,14 @@ go version
 **الحل:**
 1. تأكد من تشغيل الخدمات: `docker-compose ps`
 2. اعرض اللوقات: `docker-compose logs -f`
-3. تأكد من admin.enabled: true في config.yaml
+3. فعّل `admin.enabled` فقط عند الحاجة، واترك `require_localhost: true`.
 
 ### المشكلة: "unauthorized" عند الدخول
 
 **الحل:**
 1. تأكد من كلمة المرور الصحيحة
 2. امسح الكوكيز وحاول مجدداً
-3. راجع `configs/config.yaml` للـ password_hash
+3. راجع ملف الإعداد المستخدم لقيمة `password_hash` إذا كنت قد فعّلت المصادقة
 
 ---
 
@@ -303,7 +298,7 @@ tail -f logs/waf.log
 # أرسل للعميل:
 # "تفضل رابط لوحة التحكم: https://abc-123.trycloudflare.com"
 # "Username: admin"
-# "Password: admin123"
+# لا توجد بيانات دخول افتراضية؛ لوحة التحكم محلية فقط افتراضيًا
 ```
 
 ### سيناريو 2: ورشة عمل أو تدريب
@@ -339,7 +334,7 @@ docker-compose -f docker-compose-public.yml up -d
 
 ## ⚠️ تحذيرات الأمان
 
-1. **غيّر كلمة المرور الافتراضية فوراً**
+1. **لا تعرض لوحة التحكم على الإنترنت**
 2. **لا تترك demo backend مكشوفاً** (المنفذ 3000 يجب ألا يكون عاماً)
 3. **استخدم read_only: true** للمراقبة فقط
 4. **راجع اللوقات بانتظام** لرصد أي نشاط مشبوه

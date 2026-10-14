@@ -69,7 +69,7 @@ echo.
 if %BLOCKED% EQU %TOTAL% (
     echo PERFECT SCORE — All attacks blocked!
 ) else if %BLOCKED% GEQ 15 (
-    echo GOOD — Most attacks blocked, tune paranoia level for 100%%
+    echo GOOD — Review missed samples and tune rules against the labeled corpus.
 ) else (
     echo FAILED — Significant attacks passed through
 )

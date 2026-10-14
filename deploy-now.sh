@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==========================================================================
 #  NullGate WAF - Automatic Public Deployment
-#  This script creates a REAL public https:// URL instantly
+#  This script starts a deployment flow; a provider account is required.
 # ==========================================================================
 
 set -e
@@ -13,27 +13,15 @@ echo "║   النشر الفوري على الإنترنت                     
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo ""
 
-REPO_URL="https://github.com/fat1322im-hub/NullGate"
+REPO_URL="https://github.com/fatim1amer-netizen/NullGate"
 
-echo "[1/3] Checking deployment options..."
+echo "[1/2] Checking deployment options..."
 echo ""
-
-# Check for Railway CLI
-if command -v railway &> /dev/null; then
-    echo "✓ Railway CLI found - deploying..."
-    railway up
-    echo ""
-    echo "════════════════════════════════════════════════════════════"
-    echo "  🌐 Your URL is ready!"
-    echo "  Run: railway open"
-    echo "════════════════════════════════════════════════════════════"
-    exit 0
-fi
 
 # Check for Fly CLI
 if command -v fly &> /dev/null || command -v flyctl &> /dev/null; then
-    echo "✓ Fly.io CLI found - deploying..."
-    fly launch --yes --now
+    echo "✓ Fly.io CLI found - deploying the configured WAF..."
+    fly deploy
     echo ""
     URL=$(fly status --json 2>/dev/null | grep -o '"Hostname":"[^"]*"' | cut -d'"' -f4)
     echo "════════════════════════════════════════════════════════════"
@@ -49,9 +37,9 @@ echo "════════════════════════�
 echo "  📋 AUTOMATIC DEPLOYMENT STEPS:"
 echo ""
 echo "  1. Open: https://render.com/deploy?repo=$REPO_URL"
-echo "  2. Click 'Create Web Service' (free)"
-echo "  3. Wait 2-3 minutes for build"
-echo "  4. Copy your URL from Render dashboard"
+echo "  2. Review the render.yaml blueprint and create the service"
+echo "  3. Wait for build and verify /healthz and the forwarded site"
+echo "  4. The GitHub changes must be pushed before Render can build them"
 echo ""
 echo "  Your URL will look like:"
 echo "  https://nullgate-waf-xxxx.onrender.com"
@@ -65,9 +53,6 @@ elif command -v open &> /dev/null; then
     open "https://render.com/deploy?repo=$REPO_URL" &
 fi
 
-echo "Press Enter when deployment finishes..."
-read
-
 echo ""
-echo "✅ Check your Render dashboard for the public URL!"
-echo "   Login details are in Environment variables"
+echo "The Render service deploys independently; this script does not wait for it."
+echo "Check the Render dashboard for the URL and deployment status."

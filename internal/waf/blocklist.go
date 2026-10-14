@@ -6,8 +6,8 @@ import (
 )
 
 // Blocklist is a shared in-memory store of IP addresses and CIDRs that are
-// temporarily blocked, used by the honeypot, behavioral, and tarpit
-// subsystems. Entries expire automatically; the Cleanup goroutine keeps the
+// temporarily blocked by the behavioral subsystem. Entries expire
+// automatically; the Cleanup goroutine keeps the
 // table from growing without bound.
 //
 // Blocklists deliberately never persist: transient blocks from suspicious

@@ -4,7 +4,7 @@
 #
 #   WAF        →  http://localhost:8080   (public, protected entry point)
 #   metrics    →  http://localhost:8080/metrics
-#   admin      →  http://localhost:9091   (dashboard, localhost only)
+#   admin      → disabled in the container by default
 #   backend    →  internal only (never exposed directly)
 
 services:
@@ -18,12 +18,11 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"   # public traffic + /metrics
-      - "9091:9091"   # admin dashboard (bind to localhost in production)
     volumes:
       - ./configs/config.yaml:/configs/config.yaml:ro
     environment:
       # The demo config points the backend at the compose service name.
-      - NULLGATE_TARGET=http://backend:3000
+      - TARGET_BACKEND=http://backend:3000
     depends_on:
       - backend
     networks:

@@ -95,9 +95,9 @@ pow:
 # ------------------------------ Bot mitigation -----------------------------
 bot:
   enabled: true
-  block_known_bots: true     # blocks sqlmap/nikto/curl/python-requests/etc.
+  block_known_bots: true     # blocks high-confidence scanner signatures only
   require_sec_fetch: false
-  block_empty_ua: true
+  block_empty_ua: false      # missing User-Agent alone is not reliable proof of abuse
 
 # ------------------------------ Behavioral analysis ------------------------
 behavior:
@@ -130,24 +130,6 @@ response:
   redact_cookies: true
   redact_headers: ["authorization", "x-api-key", "proxy-authorization", "cookie"]
 
-# ------------------------------ Honeypot -----------------------------------
-honeypot:
-  enabled: true
-  block_duration_sec: 3600
-  log_only: false
-  probe_paths:
-    - "/wp-login.php"
-    - "/wp-admin"
-    - "/.env"
-    - "/.git/config"
-    - "/phpinfo.php"
-    - "/server-status"
-    - "/actuator"
-    - "/console"
-    - "/cgi-bin/"
-    - "/shell.php"
-    - "/admin.php"
-
 # ------------------------------ Tarpit -------------------------------------
 tarpit:
   enabled: true
@@ -159,12 +141,12 @@ tarpit:
 
 # ------------------------------ Admin dashboard ----------------------------
 admin:
-  enabled: true              # enabled by default for public access
-  listen_addr: "0.0.0.0:9091"  # listen on all interfaces for tunnel access
+  enabled: false             # enable explicitly with --admin or in a private deployment
+  listen_addr: "127.0.0.1:9091"
   username: "admin"
-  password_hash: "sha256:8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # default: admin123 (CHANGE THIS!)
-  read_only: false           # allow full control
-  require_localhost: false   # allow external access through tunnel
+  password_hash: ""          # set a unique password hash before enabling remote access
+  read_only: true
+  require_localhost: true
 
 # ------------------------------ Metrics ------------------------------------
 metrics:

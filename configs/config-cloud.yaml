@@ -97,7 +97,7 @@ bot:
   enabled: true
   block_known_bots: true
   require_sec_fetch: false
-  block_empty_ua: true
+  block_empty_ua: false
 
 behavior:
   enabled: true
@@ -135,23 +135,6 @@ response:
     - "x-api-key"
     - "proxy-authorization"
     - "cookie"
-
-honeypot:
-  enabled: true
-  probe_paths:
-    - "/wp-login.php"
-    - "/wp-admin"
-    - "/.env"
-    - "/.git/config"
-    - "/phpinfo.php"
-    - "/server-status"
-    - "/actuator"
-    - "/console"
-    - "/cgi-bin/"
-    - "/shell.php"
-    - "/admin.php"
-  block_duration_sec: 3600
-  log_only: false
 
 tarpit:
   enabled: true

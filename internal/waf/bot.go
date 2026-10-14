@@ -30,16 +30,11 @@ func NewBotDetector(cfg BotMitigationConfig) *BotDetector {
 	return &BotDetector{
 		cfg: cfg,
 		badUA: []string{
-			// Security scanners / offensive tooling
+			// High-confidence security scanners / offensive tooling. Generic
+			// HTTP clients and search crawlers are not blocked by their UA alone.
 			"sqlmap", "nikto", "nmap", "masscan", "dirbuster", "gobuster",
 			"wpscan", "acunetix", "nessus", "openvas", "nuclei", "feroxbuster",
 			"whatweb", "hydra", "metasploit", "burpsuite", "zaproxy",
-			// Generic automation clients (context-dependent; medium confidence)
-			"curl", "wget", "python-requests", "python-urllib", "go-http-client",
-			"java/", "libwww", "httpclient", "okhttp", "axios/", "node-fetch",
-			"headlesschrome", "phantomjs", "selenium", "puppeteer", "playwright",
-			// Self-declared crawlers
-			"bot", "crawler", "spider", "scraper", "slurp",
 		},
 		requireFetch: cfg.RequireSecFetch,
 	}
@@ -79,12 +74,6 @@ func (b *BotDetector) Inspect(r *http.Request) BotVerdict {
 		if r.Header.Get("Sec-Fetch-Site") == "" && r.Header.Get("Sec-Fetch-Mode") == "" {
 			return BotVerdict{IsBot: true, Reason: "missing Sec-Fetch headers"}
 		}
-	}
-
-	// Requests that declare a body content-type but send Accept: */* with no
-	// Accept-Language are a common scripted-client fingerprint.
-	if r.Header.Get("Accept") == "*/*" && r.Header.Get("Accept-Language") == "" && r.Header.Get("Accept-Encoding") == "" {
-		return BotVerdict{IsBot: true, Reason: "impoverished accept headers"}
 	}
 
 	return BotVerdict{}

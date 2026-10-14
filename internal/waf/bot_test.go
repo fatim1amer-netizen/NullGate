@@ -19,14 +19,39 @@ func TestBotBlocksKnownScanners(t *testing.T) {
 		"sqlmap/1.7",
 		"Nikto/2.5",
 		"Mozilla/5.0 nuclei",
-		"python-requests/2.31",
-		"curl/8.4.0",
 	} {
 		r, _ := http.NewRequest("GET", "/", nil)
 		r.Header.Set("User-Agent", ua)
 		if v := b.Inspect(r); !v.IsBot {
 			t.Errorf("UA %q should be flagged as bot", ua)
 		}
+	}
+}
+
+func TestBotAllowsGenericClientsAndCrawlers(t *testing.T) {
+	b := botDetector()
+	for _, ua := range []string{
+		"curl/8.4.0",
+		"python-requests/2.31",
+		"Go-http-client/1.1",
+		"okhttp/4.12.0",
+		"Googlebot/2.1",
+	} {
+		r, _ := http.NewRequest("GET", "/", nil)
+		r.Header.Set("User-Agent", ua)
+		r.Header.Set("Accept", "*/*")
+		if v := b.Inspect(r); v.IsBot {
+			t.Errorf("generic client or crawler UA %q should not be blocked: %s", ua, v.Reason)
+		}
+	}
+}
+
+func TestBotAllowsGenericHeadersWithoutUserAgent(t *testing.T) {
+	b := NewBotDetector(BotMitigationConfig{Enabled: true, BlockKnownBots: true})
+	r, _ := http.NewRequest("GET", "/", nil)
+	r.Header.Set("Accept", "*/*")
+	if v := b.Inspect(r); v.IsBot {
+		t.Errorf("generic headers without a User-Agent should not be blocked: %s", v.Reason)
 	}
 }
 

@@ -23,7 +23,6 @@ type Metrics struct {
 	powChallenges   atomic.Int64
 	rateLimited     atomic.Int64
 	botBlocked      atomic.Int64
-	honeypotHits    atomic.Int64
 	protocolBlocked atomic.Int64
 	csrfBlocked     atomic.Int64
 	behaviorBlocked atomic.Int64
@@ -57,7 +56,6 @@ func (m *Metrics) IncProxyError()  { m.proxyErrors.Add(1) }
 func (m *Metrics) IncPoW()         { m.powChallenges.Add(1) }
 func (m *Metrics) IncRateLimited() { m.rateLimited.Add(1) }
 func (m *Metrics) IncBot()         { m.botBlocked.Add(1) }
-func (m *Metrics) IncHoneypot()    { m.honeypotHits.Add(1) }
 func (m *Metrics) IncProtocol()    { m.protocolBlocked.Add(1) }
 func (m *Metrics) IncCSRF()        { m.csrfBlocked.Add(1) }
 func (m *Metrics) IncBehavior()    { m.behaviorBlocked.Add(1) }
@@ -101,7 +99,6 @@ type Snapshot struct {
 	PoWChallenges   int64            `json:"pow_challenges"`
 	RateLimited     int64            `json:"rate_limited"`
 	BotBlocked      int64            `json:"bot_blocked"`
-	HoneypotHits    int64            `json:"honeypot_hits"`
 	ProtocolBlocked int64            `json:"protocol_blocked"`
 	CSRFBlocked     int64            `json:"csrf_blocked"`
 	BehaviorBlocked int64            `json:"behavior_blocked"`
@@ -148,7 +145,6 @@ func (m *Metrics) Snapshot() Snapshot {
 		PoWChallenges:   m.powChallenges.Load(),
 		RateLimited:     m.rateLimited.Load(),
 		BotBlocked:      m.botBlocked.Load(),
-		HoneypotHits:    m.honeypotHits.Load(),
 		ProtocolBlocked: m.protocolBlocked.Load(),
 		CSRFBlocked:     m.csrfBlocked.Load(),
 		BehaviorBlocked: m.behaviorBlocked.Load(),
@@ -184,7 +180,6 @@ func (m *Metrics) Prometheus() string {
 	writeCounter("pow_challenges", "PoW challenges issued", s.PoWChallenges)
 	writeCounter("rate_limited", "Requests rate-limited", s.RateLimited)
 	writeCounter("bot_blocked", "Requests blocked as bots", s.BotBlocked)
-	writeCounter("honeypot_hits", "Honeypot probe hits", s.HoneypotHits)
 	writeCounter("protocol_blocked", "Protocol violations blocked", s.ProtocolBlocked)
 	writeCounter("csrf_blocked", "CSRF validations failed", s.CSRFBlocked)
 	writeCounter("behavior_blocked", "Behavioral blocks", s.BehaviorBlocked)

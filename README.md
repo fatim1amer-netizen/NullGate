@@ -5,7 +5,7 @@
 **A fail-closed, multi-layer Web Application Firewall & reverse proxy, built in Go.**
 **جدار حماية تطبيقات ويب متعدد الطبقات مع بروكسي عكسي، مبني بلغة Go.**
 
-`v2.0.0` — 64 detection rules · 12 attack classes · 10+ defense layers · 100% self-test detection, 0% false positives
+`v2.0.0` — 64 detection rules · 12 attack classes · 10+ defense layers · curated self-test corpus with labeled attack and benign cases (not a real-world accuracy guarantee)
 
 </div>
 
@@ -14,7 +14,7 @@
 ## ✨ What makes it different / ما الذي يميزه
 
 NullGate is a full-stack WAF, not a signature file. It combines an OWASP-CRS-style
-detection engine with rate limiting, proof-of-work, bot mitigation, a honeypot,
+detection engine with rate limiting, proof-of-work, bot mitigation,
 behavioral analysis, a tarpit, CSRF protection, and response hardening — all in one
 static binary with zero runtime dependencies.
 
@@ -25,8 +25,7 @@ static binary with zero runtime dependencies.
 | 64-rule detection engine | SQLi, XSS, RCE, LFI, SSRF, XXE, SSTI, NoSQLi, deserialization, prototype pollution, CRLF, scanners |
 | Rate limiter | Token-bucket, graduated Allow → PoW → Block |
 | Proof-of-Work | HMAC-bound, replay-safe client cost under attack |
-| Bot detector | sqlmap/nikto/curl/requests, empty-UA, scripted fingerprints |
-| Honeypot | `/wp-login.php`, `/.env`, `/.git/config` … one probe → blocked |
+| Bot detector | High-confidence scanner signatures and optional request-header heuristics |
 | Behavioral analysis | Scanner patterns *over time*, shared blocklist escalation |
 | CSRF | Double-submit, single-use tokens |
 | Tarpit | Escalating latency that ties up attackers' connections |
@@ -43,7 +42,7 @@ static binary with zero runtime dependencies.
 ## 🚀 Quick start / البدء السريع
 
 ### Requirements / المتطلبات
-- Go **1.21+** (1.22+ recommended)
+- Go **1.25+** (required by `go.mod`)
 - The demo backend runs on `:3000`; the WAF listens on `:8080`
 
 ### One command: build, run, attack demo / أمر واحد: بناء وتشغيل وعرض هجمات
@@ -70,12 +69,30 @@ go run ./examples/vulnerable-backend
 # WAF:  http://127.0.0.1:8080  (default)
 ```
 
+### Protect the real Graduation Platform site
+
+The repository includes a reverse-proxy profile for the live Flutter application
+at `https://7a08f55f.graduation-platform-2026.pages.dev`. It forwards the real
+site and its same-origin assets to Cloudflare Pages; it does not substitute a
+mock or NullGate landing page:
+
+```bash
+go run ./cmd/nullgate --config configs/graduation-platform.yaml
+```
+
+For deployment, point a hostname you control to the NullGate listener and keep
+the configured upstream `Host` override. The profile disables NullGate's generic
+CSP and CSRF-token requirement so it does not break the Flutter runtime or
+unknown application-specific API flows. Confirm the app's API destinations are
+same-origin before relying on NullGate to inspect those requests; calls to
+third-party services cannot be protected by this reverse proxy.
+
 ### Verify / تحقق
 
 ```bash
-# The correctness gate: 51-case labeled corpus
+# The correctness gate: labeled attack and benign corpus
 ./nullgate --selftest
-# → ✅ ALL CHECKS PASSED — 100% detection, 0% false positives.
+# → all labeled cases in the local test corpus passed
 
 # See the effective configuration after defaults & clamping
 ./nullgate --show-config
@@ -147,7 +164,7 @@ Session tokens are stored in-memory only (restart = re-auth) and use HttpOnly/Sa
 - **View Blocklist:** See all currently blocked IPs with expiry times and remaining seconds.
 
 **Protection Scanner:**
-- **Test Your Own Site:** Run the detection corpus against your protected site to measure how many attacks the WAF blocks. Ownership verification required (DNS TXT or meta tag).
+- **Test Your Own Site:** Run the detection corpus against your protected site to measure the selected sample's results. This is not a production accuracy guarantee. Ownership verification required (DNS TXT or meta tag).
 - **Engine-Only Mode:** Measure raw detection coverage without network traffic.
 
 **UI Features:**
@@ -245,7 +262,7 @@ make docker
 
 # Full demo stack: WAF + vulnerable backend, backend not exposed publicly
 docker compose up --build
-# WAF: http://localhost:8080 · admin: http://localhost:9091
+# WAF: http://localhost:8080 · admin dashboard is disabled in the container
 ```
 
 The compose stack runs the container `read_only`, drops all capabilities, and
@@ -256,12 +273,14 @@ the WAF.
 
 ## 🧪 Testing / الاختبارات
 
-69 tests covering every subsystem plus end-to-end pipeline integration:
+Tests cover the core subsystems and end-to-end pipeline integration. The curated
+self-test is a regression corpus, not a guarantee of production detection or
+false-positive rates:
 
 ```bash
 make test        # go test ./...
 make vet         # go vet ./...
-make selftest    # 100%-detection correctness gate
+make selftest    # check the curated, labeled test corpus
 make bench       # rule-engine benchmark
 make cover       # coverage report (currently ~58% statements)
 ```
@@ -294,10 +313,10 @@ NullGate/
 │   ├── ratelimit.go         # token-bucket with graduated response
 │   ├── pow.go               # stateless HMAC proof-of-work
 │   ├── ip.go                # XFF-spoofing-proof client IP
-│   ├── bot.go · honeypot.go · behavior.go · tarpit.go · blocklist.go
+│   ├── bot.go · tarpit.go · behavior.go · blocklist.go
 │   ├── csrf.go · response.go · tls.go · admin.go · metrics.go
-│   ├── selftest.go          # 51-case correctness corpus
-│   └── *_test.go            # 69 tests
+│   ├── selftest.go          # labeled attack and benign corpus
+│   └── *_test.go            # unit and integration tests
 ├── configs/config.yaml      # fully-commented configuration
 ├── examples/                # demo backends (never expose directly!)
 ├── scripts/                 # quickstart + live attack demo
@@ -341,7 +360,14 @@ NullGate/
 
 ## 🚀 Cloud Deployment / النشر السحابي
 
-Deploy to DigitalOcean, AWS, Hetzner, Vultr, or any VPS with **automatic HTTPS**:
+For a service hosted independently of your computer, use the Render or Fly.io
+deployment templates in [`DEPLOY-CLOUD.md`](DEPLOY-CLOUD.md). A provider account
+and a pushed GitHub branch are required; the templates proxy the real Flutter
+application rather than the local demo backend. Free hosting plans are not an
+availability or production-support guarantee.
+
+For a self-managed VPS, edit `configs/config-cloud.yaml` with your backend and
+domain, then follow [`deploy/DEPLOY.md`](deploy/DEPLOY.md):
 
 ```bash
 # One command on your server:
@@ -356,7 +382,8 @@ server:
   auto_tls_email: "admin@yourdomain.com"
 ```
 
-Let's Encrypt will provision your certificate automatically. The WAF handles HTTP→HTTPS redirect and ACME challenges on port 80, serves HTTPS on 443.
+Let's Encrypt can provision a certificate for a domain you control when automatic
+TLS is enabled. Verify the provider's port and proxy requirements before rollout.
 
 **See `deploy/DEPLOY.md` for:**
 - Step-by-step VPS setup (5 minutes)

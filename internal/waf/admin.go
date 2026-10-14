@@ -210,7 +210,6 @@ func (a *AdminServer) info() AdminInfo {
 			{"rate_limit", c.RateLimit.Enabled},
 			{"pow", c.PoW.Enabled},
 			{"bot", c.Bot.Enabled},
-			{"honeypot", c.Honeypot.Enabled},
 			{"behavior", c.Behavior.Enabled},
 			{"csrf", c.CSRF.Enabled},
 			{"tarpit", c.Tarpit.Enabled},

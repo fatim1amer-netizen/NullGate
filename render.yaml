@@ -2,15 +2,17 @@ services:
   - type: web
     name: nullgate-waf
     runtime: docker
-    repo: https://github.com/fat1322im-hub/NullGate
+    branch: fatim1amer-netizen-nullgate-false-positive-fixes
+    repo: https://github.com/fatim1amer-netizen/NullGate
     region: oregon
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
     envVars:
-      # Render injects PORT automatically; the app binds the dashboard to it.
-      - key: ADMIN_PASSWORD
-        generateValue: true
+      - key: NULLGATE_CONFIG
+        value: /configs/graduation-platform.yaml
       - key: TARGET_BACKEND
-        value: https://jsonplaceholder.typicode.com
+        value: https://7a08f55f.graduation-platform-2026.pages.dev
+      - key: UPSTREAM_HOST
+        value: 7a08f55f.graduation-platform-2026.pages.dev
     healthCheckPath: /healthz

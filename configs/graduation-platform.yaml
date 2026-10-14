@@ -1,0 +1,17 @@
+# Reverse-proxy the real Flutter app hosted on Cloudflare Pages.
+# Point your own public hostname to NullGate; the upstream Host override keeps
+# Cloudflare Pages serving this site instead of the generic Pages error page.
+server:
+  target_backend: "https://7a08f55f.graduation-platform-2026.pages.dev"
+  upstream_host: "7a08f55f.graduation-platform-2026.pages.dev"
+  serve_landing: false
+
+# The Flutter app owns its own client-side behavior and may use API calls that
+# do not follow NullGate's double-submit-token convention.
+csrf:
+  enabled: false
+
+# Do not impose a generic CSP on the Flutter bootstrap/runtime; preserve the
+# CSP supplied by the site itself, if any.
+response:
+  add_csp: false
