@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"context"
+	"crypto/tls"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -61,6 +64,7 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	blocklist := NewBlocklist()
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.Transport = newUpstreamTransport()
 	// Preserve the original director but add header sanitization so a client
 	// cannot inject forwarding/hop-by-hop headers to the backend.
 	origDirector := proxy.Director
@@ -79,7 +83,11 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		metrics.IncProxyError()
-		logger.Error("proxy error", map[string]interface{}{"error": err.Error(), "path": r.URL.Path})
+		logger.Error("proxy error", map[string]interface{}{
+			"error": sanitizedProxyError(err),
+			"host":  targetURL.Host,
+			"path":  r.URL.Path,
+		})
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
 
@@ -109,6 +117,76 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	return e, nil
 }
 
+type upstreamTransport struct {
+	primary  http.RoundTripper
+	fallback http.RoundTripper
+}
+
+func newUpstreamTransport() *upstreamTransport {
+	base := http.DefaultTransport.(*http.Transport)
+	primary := base.Clone()
+	primaryProtocols := new(http.Protocols)
+	primaryProtocols.SetHTTP1(true)
+	primaryProtocols.SetHTTP2(true)
+	primary.Protocols = primaryProtocols
+
+	fallback := base.Clone()
+	fallback.ForceAttemptHTTP2 = false
+	fallbackProtocols := new(http.Protocols)
+	fallbackProtocols.SetHTTP1(true)
+	fallback.Protocols = fallbackProtocols
+	fallbackTLS := &tls.Config{}
+	if base.TLSClientConfig != nil {
+		fallbackTLS = base.TLSClientConfig.Clone()
+	}
+	fallbackTLS.NextProtos = []string{"http/1.1"}
+	fallback.TLSClientConfig = fallbackTLS
+
+	return &upstreamTransport{primary: primary, fallback: fallback}
+}
+
+func (t *upstreamTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.primary.RoundTrip(r)
+	if err == nil || !safeToRetryWithoutBody(r) || !isNegotiatedProtocolError(err) ||
+		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return resp, err
+	}
+
+	resp, fallbackErr := t.fallback.RoundTrip(r)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("HTTP/1.1 fallback after negotiated transport failure: %w", fallbackErr)
+	}
+	return resp, nil
+}
+
+func isNegotiatedProtocolError(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "bad record mac") ||
+		strings.Contains(message, "http2") ||
+		strings.Contains(message, "http/2") ||
+		strings.Contains(message, "protocol error")
+}
+
+func safeToRetryWithoutBody(r *http.Request) bool {
+	if r.Body != nil && r.Body != http.NoBody {
+		return false
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizedProxyError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Sprintf("%s upstream request: %v", urlErr.Op, urlErr.Err)
+	}
+	return fmt.Sprintf("%T: %v", err, err)
+}
+
 // Logger/Metrics/Blocklist/Rules expose subsystems for the runner (admin, selftest).
 func (e *Engine) Logger() *Logger       { return e.logger }
 func (e *Engine) Metrics() *Metrics     { return e.metrics }
@@ -116,17 +194,73 @@ func (e *Engine) Blocklist() *Blocklist { return e.blocklist }
 func (e *Engine) Rules() *RuleEngine    { return e.rules }
 func (e *Engine) Config() *Config       { return e.config }
 
+// BackendHealth reports a live probe of the configured upstream independently
+// from NullGate's own process health.
+type BackendHealth struct {
+	State      string    `json:"state"`
+	HTTPStatus int       `json:"http_status,omitempty"`
+	CheckedAt  time.Time `json:"checked_at"`
+}
+
+func (e *Engine) ProbeBackend(ctx context.Context) BackendHealth {
+	health := BackendHealth{State: "unknown", CheckedAt: time.Now().UTC()}
+	target, err := url.Parse(e.config.Server.TargetBackend)
+	if err != nil {
+		return health
+	}
+	probe := func(method string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, method, target.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Host = e.config.Server.UpstreamHost
+		req.Header.Set("User-Agent", "NullGate-Health-Check")
+		req.Header.Set("Range", "bytes=0-0")
+		return e.proxy.Transport.RoundTrip(req)
+	}
+
+	resp, err := probe(http.MethodHead)
+	if err != nil {
+		health.State = "unhealthy"
+		return health
+	}
+	if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotImplemented {
+		resp.Body.Close()
+		resp, err = probe(http.MethodGet)
+		if err != nil {
+			health.State = "unhealthy"
+			return health
+		}
+	}
+	health.HTTPStatus = resp.StatusCode
+	resp.Body.Close()
+	if resp.StatusCode < http.StatusInternalServerError {
+		health.State = "healthy"
+	} else {
+		health.State = "unhealthy"
+	}
+	return health
+}
+
 func (e *Engine) refreshGauges() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
-		e.metrics.SetTracked(int64(e.rateLimiter.TrackedClients() + e.behavior.TrackedClients()))
+		clients := make(map[string]struct{})
+		for _, ip := range e.rateLimiter.trackedClientIDs() {
+			clients[ip] = struct{}{}
+		}
+		for _, ip := range e.behavior.trackedClientIDs() {
+			clients[ip] = struct{}{}
+		}
+		e.metrics.SetTracked(int64(len(clients)))
 	}
 }
 
 // ServeHTTP is the entry point for every request.
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	defer func() { e.metrics.ObserveLatency(time.Since(start)) }()
 	e.metrics.IncTotal()
 	clientIP := e.ipResolver.ClientIP(r)
 
@@ -162,7 +296,6 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=300")
 		e.response.Apply(w.Header(), r)
 		_, _ = io.WriteString(w, landingHTML)
-		e.metrics.ObserveLatency(time.Since(start))
 		return
 	}
 
@@ -205,10 +338,18 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.deny(w, r, clientIP, "protocol", err.Error(), http.StatusBadRequest)
 		return
 	}
-	if scan, hit := e.inspect(r, body); hit {
-		e.metrics.RecordCategory(scan.TopCategory(), topRuleID(scan))
+	scan, hit := e.inspect(r, body)
+	if len(scan.Matches) > 0 {
+		e.recordDetections(scan, clientIP, hit)
+	}
+	if hit {
+		match := topMatch(scan)
+		reason := fmt.Sprintf("%s (score %d)", scan.TopCategory(), scan.AnomalyScore)
+		if match != nil {
+			reason = fmt.Sprintf("%s: %s (score %d)", match.RuleID, match.Desc, scan.AnomalyScore)
+		}
 		e.deny(w, r, clientIP, "rules",
-			fmt.Sprintf("%s (score %d)", scan.TopCategory(), scan.AnomalyScore),
+			reason,
 			http.StatusForbidden)
 		return
 	}
@@ -252,12 +393,24 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	e.metrics.IncAllowed()
 	e.proxy.ServeHTTP(w, r)
 
-	e.metrics.ObserveLatency(time.Since(start))
 	if e.config.Logging.EnableAccessLog {
 		e.logger.Info("request allowed", map[string]interface{}{
 			"method": r.Method, "path": r.URL.Path, "client_ip": clientIP,
 			"duration_ms": time.Since(start).Milliseconds(),
 		})
+	}
+}
+
+func (e *Engine) recordDetections(scan ScanResult, clientIP string, blocked bool) {
+	for _, match := range scan.Matches {
+		e.metrics.RecordCategory(match.Category, match.RuleID)
+		if !blocked {
+			e.logger.Warn("rule matched", map[string]interface{}{
+				"layer": "rules", "rule_id": match.RuleID, "category": match.Category,
+				"severity": match.Severity.String(), "description": match.Desc,
+				"score": scan.AnomalyScore, "client_ip": clientIP,
+			})
+		}
 	}
 }
 
@@ -289,12 +442,17 @@ func (e *Engine) inspect(r *http.Request, body []byte) (ScanResult, bool) {
 	var agg ScanResult
 	seenRules := make(map[string]struct{})
 
-	scan := func(value string) bool {
+	scan := func(value string, skipSSRF bool) bool {
 		if value == "" {
 			return false
 		}
 		for _, variant := range e.decoder.Variants(value) {
-			res := e.rules.Scan(variant)
+			var res ScanResult
+			if skipSSRF {
+				res = e.rules.ScanExceptCategories(variant, CatSSRF)
+			} else {
+				res = e.rules.Scan(variant)
+			}
 			for _, match := range res.Matches {
 				if _, seen := seenRules[match.RuleID]; seen {
 					continue
@@ -314,13 +472,13 @@ func (e *Engine) inspect(r *http.Request, body []byte) (ScanResult, bool) {
 	}
 
 	// Request path.
-	if scan(r.URL.Path) {
+	if scan(r.URL.Path, false) {
 		return agg, true
 	}
 	// Query parameters.
 	for _, vals := range r.URL.Query() {
 		for _, v := range vals {
-			if scan(v) {
+			if scan(v, false) {
 				return agg, true
 			}
 		}
@@ -330,19 +488,20 @@ func (e *Engine) inspect(r *http.Request, body []byte) (ScanResult, bool) {
 		if isSkippableHeader(name) {
 			continue
 		}
+		skipSSRF := strings.EqualFold(name, "Referer") || strings.EqualFold(name, "Origin")
 		for _, v := range vals {
-			if scan(v) {
+			if scan(v, skipSSRF) {
 				return agg, true
 			}
 		}
 	}
 	// Body — scanned raw plus structure-aware (JSON keys/values, multipart).
 	if len(body) > 0 {
-		if scan(string(body)) {
+		if scan(string(body), false) {
 			return agg, true
 		}
 		for _, s := range e.extractStructured(r, body) {
-			if scan(s) {
+			if scan(s, false) {
 				return agg, true
 			}
 		}
@@ -505,16 +664,17 @@ func isSkippableHeader(name string) bool {
 	return false
 }
 
-func topRuleID(sr ScanResult) string {
+func topMatch(sr ScanResult) *MatchResult {
 	best := SevLow
-	id := ""
+	var bestMatch *MatchResult
 	for _, m := range sr.Matches {
 		if m.Severity >= best {
 			best = m.Severity
-			id = m.RuleID
+			match := m
+			bestMatch = &match
 		}
 	}
-	return id
+	return bestMatch
 }
 
 // powChallengeHTML is the interstitial page. The JS solves SHA-256 PoW and

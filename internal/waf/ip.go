@@ -59,14 +59,14 @@ func (r *IPResolver) ClientIP(req *http.Request) string {
 	// If we don't trust any forwarding headers, or the direct peer isn't a
 	// trusted proxy, the peer address is the only trustworthy identity.
 	if (!r.trustXFF && !r.trustXRealIP) || !r.isTrusted(peer) {
-		return peer.String()
+		return clientIdentity(peer)
 	}
 
 	// X-Real-IP is a single value set by the trusted proxy.
 	if r.trustXRealIP {
 		if xri := strings.TrimSpace(req.Header.Get("X-Real-IP")); xri != "" {
 			if ip := net.ParseIP(xri); ip != nil {
-				return ip.String()
+				return clientIdentity(ip)
 			}
 		}
 	}
@@ -89,12 +89,22 @@ func (r *IPResolver) ClientIP(req *http.Request) string {
 				if r.isTrusted(candidate) {
 					continue
 				}
-				return candidate.String()
+				return clientIdentity(candidate)
 			}
 		}
 	}
 
-	return peer.String()
+	return clientIdentity(peer)
+}
+
+// clientIdentity gives IPv4 and IPv6 loopback connections one stable identity.
+// Browsers commonly resolve localhost to ::1 while command-line clients use
+// 127.0.0.1; per-client controls should not treat them as separate local users.
+func clientIdentity(ip net.IP) string {
+	if ip != nil && ip.IsLoopback() {
+		return net.IPv4(127, 0, 0, 1).String()
+	}
+	return ip.String()
 }
 
 // isTrusted reports whether an IP belongs to the trusted-proxy set.

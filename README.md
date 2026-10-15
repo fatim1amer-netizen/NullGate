@@ -87,6 +87,37 @@ unknown application-specific API flows. Confirm the app's API destinations are
 same-origin before relying on NullGate to inspect those requests; calls to
 third-party services cannot be protected by this reverse proxy.
 
+### Windows single-executable build
+
+From the repository root, build the Windows amd64 executable and copy the
+production profile beside it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+$securePassword = Read-Host "Dashboard password" -AsSecureString
+$env:ADMIN_PASSWORD = [System.Net.NetworkCredential]::new("", $securePassword).Password
+.\dist\NullGate.exe --admin
+Remove-Item Env:\ADMIN_PASSWORD
+```
+
+The executable and its external configuration can be launched from any current
+directory. The profile is kept at `dist\configs\config.yaml` so backend
+addresses and security policy remain editable and no credentials are compiled
+into the binary. `--admin` starts the dashboard on `127.0.0.1:9091`; set
+`ADMIN_PASSWORD` through your protected service environment to enable login.
+Without it, the admin interface remains read-only and loopback-only. Open
+`http://127.0.0.1:8080/` for the real upstream application and
+`http://127.0.0.1:9091/` for the dashboard.
+
+If either default port is already occupied, change `server.listen_addr` and
+`admin.listen_addr` in the external `dist\configs\config.yaml` before launch.
+
+`/healthz` reports local process liveness; `/readyz` performs a TLS-verified
+upstream probe and returns 503 if the configured backend is unavailable.
+Dashboard upstream health is likewise probed at refresh time. Dashboard
+request totals, blocks, proxy errors, attack categories, and latency come from
+live engine counters/events; they are not simulated traffic.
+
 ### Verify / تحقق
 
 ```bash
@@ -135,26 +166,31 @@ The `--admin` flag overrides `admin.enabled` in the config and **always** keeps 
 
 ### Secure Login / تسجيل الدخول الآمن
 
-When `admin.password_hash` is configured, the dashboard requires authentication. Set it in `configs/config.yaml`:
+When `ADMIN_PASSWORD` is set in the process environment, the dashboard requires
+authentication; NullGate derives a bcrypt hash at startup and never writes the
+password into the binary or config file. Alternatively, set a bcrypt hash in
+`configs/config.yaml`:
 
 ```yaml
 admin:
   enabled: true
   username: "admin"
-  password_hash: "sha256:abc123..."  # Generate: echo -n "your-password" | sha256sum
+  password_hash: "$2a$10$..."  # bcrypt hash from your deployment's secret tooling
   session_ttl_min: 720  # 12 hours
 ```
 
-Session tokens are stored in-memory only (restart = re-auth) and use HttpOnly/SameSite cookies for CSRF protection.
+Plaintext passwords are rejected in configuration. Legacy `sha256:` hashes
+remain readable for migration; new hashes should use bcrypt. Session tokens are
+stored in-memory only (restart = re-auth) and use HttpOnly/SameSite cookies.
 
 ### What's inside / ما بالداخل
 
 **Monitoring:**
-- **9 live KPI cards:** total/allowed/blocked requests, block rate, latency, uptime, tracked clients, blocklist entries, active rules.
+- **10 live KPI cards:** total/allowed/blocked requests, proxy errors, block rate, latency, uptime, tracked clients, blocklist entries, active rules.
 - **Live traffic chart:** rolling canvas chart, allowed/blocked split.
 - **Attack categories bar chart:** top 10 attack classes by count.
 - **Defense layers grid:** 11 layers with per-layer block counts + enabled/disabled state.
-- **Security posture:** paranoia level, anomaly threshold, TLS status, fail-closed indicator, listener + backend addresses.
+- **Security posture:** paranoia level, anomaly threshold, TLS status, fail-closed indicator, listener + backend addresses and live backend health.
 - **Security events table:** 100 most-recent events, filterable by level (warn/error) and search.
 
 **Live Control (when `read_only: false`):**
@@ -195,6 +231,7 @@ All served on the admin socket (`127.0.0.1:9091` by default):
 | `/api/admin/blocklist` | GET | List all blocklist entries with expiry |
 | `/api/admin/scan` | POST | Run protection scan (engine or live mode) |
 | `/healthz` | GET | Liveness probe |
+| `/readyz` | GET | Readiness probe including upstream connectivity |
 
 The dashboard calls `/api/overview` every refresh; the other endpoints are available for external monitoring/alerting integrations.
 

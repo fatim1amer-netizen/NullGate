@@ -166,14 +166,27 @@ func NewRuleEngine(paranoia int, customPatterns []string) *RuleEngine {
 // Scan evaluates a decoded payload and returns the aggregate result.
 // It short-circuits scanning of empty payloads for performance.
 func (e *RuleEngine) Scan(payload string) ScanResult {
+	return e.ScanExceptCategories(payload)
+}
+
+// ScanExceptCategories scans a payload while omitting signatures that are not
+// meaningful for a known field context, such as SSRF checks on Referer.
+func (e *RuleEngine) ScanExceptCategories(payload string, excluded ...Category) ScanResult {
 	var res ScanResult
 	if payload == "" {
 		return res
 	}
 
+	skip := make(map[Category]struct{}, len(excluded))
+	for _, category := range excluded {
+		skip[category] = struct{}{}
+	}
 	currentParanoia := int(e.paranoia.Load())
 	eval := func(r *Rule) {
 		if r.Paranoia > currentParanoia {
+			return
+		}
+		if _, ok := skip[r.Category]; ok {
 			return
 		}
 		if r.Match(payload) {
@@ -247,6 +260,7 @@ type rspec struct {
 // by attack class and tagged with a paranoia level so operators can trade
 // coverage for false-positive rate. All patterns are case-insensitive.
 func compileBuiltinRules() []*Rule {
+	ipv4Octet := `(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)`
 	specs := []rspec{
 		// ---------------- SQL Injection ----------------
 		{"SQLI-001", CatSQLi, SevCritical, 1, "SQL boolean-based tautology", `(?i)('|"|\s)(or|and)(\s+|\/\*.*?\*\/)('?\w+'?\s*(=|<>|like)\s*'?\w+'?|'\d+'?\s*=\s*'?\d+)`},
@@ -297,9 +311,9 @@ func compileBuiltinRules() []*Rule {
 		{"LFI-008", CatLFI, SevMedium, 3, "Null-byte path truncation", `(?i)(%00|\x00)`},
 
 		// ---------------- Server-Side Request Forgery ----------------
-		{"SSRF-001", CatSSRF, SevHigh, 1, "Loopback target", `(?i)(https?|gopher|dict|ftp)://(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])`},
-		{"SSRF-002", CatSSRF, SevCritical, 1, "Cloud metadata endpoint", `(?i)(169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200)`},
-		{"SSRF-003", CatSSRF, SevHigh, 1, "RFC1918 private range target", `(?i)(https?|gopher|dict)://(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)`},
+		{"SSRF-001", CatSSRF, SevHigh, 1, "Loopback target", `(?i)(https?|gopher|dict|ftp)://(?:[^/@\s?#]+@)?(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/\?#\s]|$)`},
+		{"SSRF-002", CatSSRF, SevCritical, 1, "Cloud metadata endpoint", `(?i)(https?|gopher|dict|ftp)://(?:[^/@\s?#]+@)?(?:169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200)(?::\d+)?(?:[/\?#\s]|$)`},
+		{"SSRF-003", CatSSRF, SevHigh, 1, "RFC1918 private range target", `(?i)(https?|gopher|dict)://(?:[^/@\s?#]+@)?(?:10\.` + ipv4Octet + `\.` + ipv4Octet + `\.` + ipv4Octet + `|172\.(?:1[6-9]|2\d|3[01])\.` + ipv4Octet + `\.` + ipv4Octet + `|192\.168\.` + ipv4Octet + `\.` + ipv4Octet + `)(?::\d+)?(?:[/\?#\s]|$)`},
 		{"SSRF-004", CatSSRF, SevHigh, 2, "Dangerous SSRF schemes", `(?i)(gopher|dict|ftp|ldap|tftp)://`},
 		{"SSRF-005", CatSSRF, SevMedium, 3, "Decimal/octal/hex IP obfuscation", `(?i)://(0x[0-9a-f]+|0\d{3,}|\d{8,})`},
 		{"SSRF-006", CatSSRF, SevMedium, 3, "IPv6-mapped or rare-notation host", `(?i)://\[?(::ffff:|0:0:0:0)`},

@@ -128,6 +128,16 @@ func (rl *RateLimiter) TrackedClients() int {
 	return len(rl.buckets)
 }
 
+func (rl *RateLimiter) trackedClientIDs() []string {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	ids := make([]string, 0, len(rl.buckets))
+	for ip := range rl.buckets {
+		ids = append(ids, ip)
+	}
+	return ids
+}
+
 func (rl *RateLimiter) cleanup(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

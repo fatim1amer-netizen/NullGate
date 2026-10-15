@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // SessionStore is an in-memory store of authenticated dashboard sessions.
@@ -93,20 +96,23 @@ func (s *SessionStore) Cleanup(interval time.Duration) {
 	}
 }
 
-// HashPassword returns the canonical stored form of a password:
-// "sha256:<hex>". Storing a hash (not the plaintext) means a leaked config
-// file does not immediately hand over the admin password.
-func HashPassword(plaintext string) string {
-	sum := sha256.Sum256([]byte(plaintext))
-	return "sha256:" + hex.EncodeToString(sum[:])
+// HashPassword returns a bcrypt password hash suitable for admin configuration.
+func HashPassword(plaintext string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash admin password: %w", err)
+	}
+	return string(hash), nil
 }
 
-// VerifyPassword checks a plaintext attempt against a stored credential in
-// constant time. The stored value may be either the "sha256:<hex>" form
-// (preferred) or, for backward compatibility, a plaintext value.
+// VerifyPassword checks a plaintext attempt against a stored credential. Bcrypt
+// is preferred; legacy SHA-256 hashes remain readable for existing configs.
 func VerifyPassword(stored, attempt string) bool {
 	if stored == "" {
 		return false
+	}
+	if strings.HasPrefix(stored, "$2a$") || strings.HasPrefix(stored, "$2b$") || strings.HasPrefix(stored, "$2y$") {
+		return bcrypt.CompareHashAndPassword([]byte(stored), []byte(attempt)) == nil
 	}
 	if strings.HasPrefix(stored, "sha256:") {
 		want := strings.TrimPrefix(stored, "sha256:")
@@ -114,6 +120,21 @@ func VerifyPassword(stored, attempt string) bool {
 		got := hex.EncodeToString(sum[:])
 		return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
 	}
-	// Legacy plaintext comparison (still constant-time).
-	return subtle.ConstantTimeCompare([]byte(stored), []byte(attempt)) == 1
+	return false
+}
+
+func supportedPasswordHash(stored string) bool {
+	if strings.HasPrefix(stored, "$2a$") || strings.HasPrefix(stored, "$2b$") || strings.HasPrefix(stored, "$2y$") {
+		_, err := bcrypt.Cost([]byte(stored))
+		return err == nil
+	}
+	if strings.HasPrefix(stored, "sha256:") {
+		encoded := strings.TrimPrefix(stored, "sha256:")
+		if len(encoded) != sha256.Size*2 {
+			return false
+		}
+		_, err := hex.DecodeString(encoded)
+		return err == nil
+	}
+	return false
 }

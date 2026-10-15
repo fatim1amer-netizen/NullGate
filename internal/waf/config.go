@@ -412,6 +412,9 @@ func ValidateConfig(cfg *Config) error {
 	if err != nil || (backend.Scheme != "http" && backend.Scheme != "https") || backend.Hostname() == "" {
 		return fmt.Errorf("server.target_backend must be an absolute http or https URL")
 	}
+	if backend.User != nil || backend.Fragment != "" {
+		return fmt.Errorf("server.target_backend must not contain credentials or a fragment")
+	}
 	if strings.ContainsAny(cfg.Server.UpstreamHost, "/\\ \t\r\n") {
 		return fmt.Errorf("server.upstream_host must contain only a host name and optional port")
 	}
@@ -425,6 +428,9 @@ func ValidateConfig(cfg *Config) error {
 		if cfg.Server.TLSCert == "" || cfg.Server.TLSKey == "" {
 			return fmt.Errorf("TLS enabled but tls_cert or tls_key is missing")
 		}
+	}
+	if cfg.Admin.PasswordHash != "" && !supportedPasswordHash(cfg.Admin.PasswordHash) {
+		return fmt.Errorf("admin.password_hash must be a bcrypt or legacy sha256 hash; plaintext is not accepted")
 	}
 
 	// Clamp decode depth to bound CPU work per request.

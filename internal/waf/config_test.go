@@ -42,3 +42,19 @@ func TestDefaultConfigKeepsAdminLocalAndDisabled(t *testing.T) {
 			cfg.Admin.ListenAddr, cfg.Admin.RequireLocalhost)
 	}
 }
+
+func TestValidateConfigRejectsCredentialsInBackendURL(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.TargetBackend = "https://user:secret@example.test/"
+	if err := ValidateConfig(cfg); err == nil {
+		t.Fatal("backend URL with embedded credentials should be rejected")
+	}
+}
+
+func TestValidateConfigRejectsPlaintextAdminPassword(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Admin.PasswordHash = "plaintext-password"
+	if err := ValidateConfig(cfg); err == nil {
+		t.Fatal("plaintext admin password configuration should be rejected")
+	}
+}

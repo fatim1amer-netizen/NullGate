@@ -157,6 +157,16 @@ func (bt *BehaviorTracker) TrackedClients() int {
 	return len(bt.clients)
 }
 
+func (bt *BehaviorTracker) trackedClientIDs() []string {
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
+	ids := make([]string, 0, len(bt.clients))
+	for ip := range bt.clients {
+		ids = append(ids, ip)
+	}
+	return ids
+}
+
 func looksSuspiciousUA(ua string) bool {
 	ua = strings.ToLower(ua)
 	if ua == "" {

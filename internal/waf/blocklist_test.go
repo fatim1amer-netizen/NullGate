@@ -27,6 +27,20 @@ func TestBlocklistZeroDurationNoOp(t *testing.T) {
 	}
 }
 
+func TestBlocklistLenExcludesExpiredEntries(t *testing.T) {
+	bl := NewBlocklist()
+	bl.Add("203.0.113.75", 20*time.Millisecond)
+	if bl.Len() != 1 {
+		t.Fatalf("active blocklist length = %d, want 1", bl.Len())
+	}
+	bl.mu.Lock()
+	bl.entries["203.0.113.75"] = time.Now().Add(-time.Second)
+	bl.mu.Unlock()
+	if bl.Len() != 0 {
+		t.Fatalf("expired blocklist length = %d, want 0", bl.Len())
+	}
+}
+
 func TestBlocklistCIDREntry(t *testing.T) {
 	bl := NewBlocklist()
 	bl.Add("10.0.0.0/8", time.Minute)

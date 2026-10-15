@@ -84,6 +84,16 @@ func TestClientIPTrustsXRealIPFromProxy(t *testing.T) {
 	}
 }
 
+func TestClientIPCanonicalizesIPv4AndIPv6Loopback(t *testing.T) {
+	r := newXFFResolver(false, false)
+	for _, remoteAddr := range []string{"127.0.0.1:40000", "[::1]:40000"} {
+		req := reqWith(remoteAddr, nil)
+		if got := r.ClientIP(req); got != "127.0.0.1" {
+			t.Errorf("ClientIP(%q) = %q, want canonical loopback 127.0.0.1", remoteAddr, got)
+		}
+	}
+}
+
 func TestIsPrivateIP(t *testing.T) {
 	cases := map[string]bool{
 		"127.0.0.1":       true,

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -81,7 +82,11 @@ func run() error {
 		cfg.Admin.PasswordHash = hash
 	}
 	if password := os.Getenv("ADMIN_PASSWORD"); password != "" {
-		cfg.Admin.PasswordHash = waf.HashPassword(password)
+		hash, err := waf.HashPassword(password)
+		if err != nil {
+			return fmt.Errorf("hash ADMIN_PASSWORD: %w", err)
+		}
+		cfg.Admin.PasswordHash = hash
 	}
 	if backend := strings.TrimSpace(os.Getenv("TARGET_BACKEND")); backend != "" {
 		cfg.Server.TargetBackend = backend
@@ -116,7 +121,7 @@ func run() error {
 		}
 		handler = withMetrics(handler, metricsPath, engine)
 	}
-	handler = withHealthz(handler)
+	handler = withHealthz(handler, engine)
 
 	server := &http.Server{
 		Addr:              cfg.Server.ListenAddr,
@@ -133,7 +138,7 @@ func run() error {
 	if cfg.Admin.Enabled {
 		admin := waf.NewAdminServer(
 			cfg.Admin, cfg, engine.Metrics(), engine.Logger(), engine.Blocklist(),
-			engine.Rules(), Version, engine.Rules().RuleCount(), engine.Rules().TotalRuleCount(),
+			engine.Rules(), Version, engine.Rules().RuleCount(), engine.Rules().TotalRuleCount(), engine.ProbeBackend,
 		)
 		adminServer = &http.Server{
 			Addr:              cfg.Admin.ListenAddr,
@@ -186,11 +191,18 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
+	if err := shutdownServers(shutdownCtx, server, adminServer); err != nil {
+		return err
+	}
+	return nil
+}
+
+func shutdownServers(ctx context.Context, public, admin *http.Server) error {
+	if err := public.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shut down public server: %w", err)
 	}
-	if adminServer != nil {
-		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+	if admin != nil {
+		if err := admin.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shut down admin server: %w", err)
 		}
 	}
@@ -201,7 +213,15 @@ func defaultConfigPath() string {
 	if path := strings.TrimSpace(os.Getenv("NULLGATE_CONFIG")); path != "" {
 		return path
 	}
-	return "configs/config.yaml"
+	if executable, err := os.Executable(); err == nil {
+		for _, name := range []string{"configs/config.yaml", "config.yaml"} {
+			path := filepath.Join(filepath.Dir(executable), name)
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
+		}
+	}
+	return filepath.Join("configs", "config.yaml")
 }
 
 func withMetrics(next http.Handler, path string, engine *waf.Engine) http.Handler {
@@ -215,17 +235,32 @@ func withMetrics(next http.Handler, path string, engine *waf.Engine) http.Handle
 	})
 }
 
-func withHealthz(next http.Handler) http.Handler {
+func withHealthz(next http.Handler, engine *waf.Engine) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			if r.Method != http.MethodGet {
 				w.Header().Set("Allow", http.MethodGet)
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
+			if r.URL.Path == "/readyz" {
+				ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+				defer cancel()
+				health := engine.ProbeBackend(ctx)
+				if health.State != "healthy" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					fmt.Fprintf(w, `{"status":"not_ready","backend":%q,"http_status":%d}`, health.State, health.HTTPStatus)
+					return
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"status":"ok"}`)
+			if r.URL.Path == "/readyz" {
+				fmt.Fprint(w, `{"status":"ready","backend":"healthy"}`)
+			} else {
+				fmt.Fprint(w, `{"status":"ok"}`)
+			}
 			return
 		}
 		next.ServeHTTP(w, r)

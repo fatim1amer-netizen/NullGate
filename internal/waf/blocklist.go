@@ -82,11 +82,18 @@ func (b *Blocklist) Blocked(ip string) bool {
 	return b.IsBlocked(ip)
 }
 
-// Len returns the current number of entries (including expired, pre-cleanup).
+// Len returns the number of entries that are active at the time of the call.
 func (b *Blocklist) Len() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return len(b.entries)
+	now := time.Now()
+	n := 0
+	for _, expires := range b.entries {
+		if now.Before(expires) {
+			n++
+		}
+	}
+	return n
 }
 
 // Remove deletes an entry from the blocklist immediately (manual unblock).

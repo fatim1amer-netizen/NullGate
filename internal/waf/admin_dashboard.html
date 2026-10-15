@@ -332,9 +332,11 @@ const I18N = {
     "foot.mode":"Fail-closed mode active",
     "kpi.total":"Total Requests","kpi.allowed":"Allowed","kpi.blocked":"Blocked","kpi.blockrate":"Block Rate",
     "kpi.latency":"Avg Latency","kpi.uptime":"Uptime","kpi.tracked":"Tracked Clients","kpi.blocklist":"Blocklist",
+    "kpi.proxy_errors":"Upstream Errors","kpi.foot.upstream":"upstream failures",
+    "posture.backend_health":"Backend Health","backend.healthy":"Healthy","backend.unhealthy":"Unhealthy","backend.unknown":"Unknown",
     "kpi.rules":"Active Rules","kpi.foot.forwarded":"forwarded to backend","kpi.foot.denied":"denied at the gate",
     "kpi.foot.oftotal":"of all traffic","kpi.foot.perreq":"per request","kpi.foot.entries":"active entries",
-    "kpi.foot.ofrules":"of {n} total","kpi.foot.since":"since start","kpi.foot.inflight":"rate-limit + behavior",
+    "kpi.foot.ofrules":"of {n} total","kpi.foot.since":"since start","kpi.foot.inflight":"unique tracked clients",
     "posture.paranoia":"Paranoia Level","posture.anomaly":"Anomaly Threshold","posture.backend":"Backend",
     "posture.listen":"Public Listener","posture.tls":"TLS","posture.failclosed":"Fail-Closed","posture.on":"ON","posture.off":"OFF",
     "layer.protocol":"Protocol","layer.decoding":"Decoder","layer.rules":"Rule Engine","layer.rate_limit":"Rate Limit",
@@ -355,9 +357,11 @@ const I18N = {
     "foot.mode":"وضع الرفض الافتراضي مُفعّل",
     "kpi.total":"إجمالي الطلبات","kpi.allowed":"المسموحة","kpi.blocked":"المحظورة","kpi.blockrate":"نسبة الحظر",
     "kpi.latency":"متوسط الاستجابة","kpi.uptime":"مدة التشغيل","kpi.tracked":"العملاء المتتبَّعون","kpi.blocklist":"قائمة الحظر",
+    "kpi.proxy_errors":"أخطاء الخادم الخلفي","kpi.foot.upstream":"فشل في الاتصال بالخادم","posture.backend_health":"حالة الخادم الخلفي",
+    "backend.healthy":"يعمل","backend.unhealthy":"متعذّر","backend.unknown":"غير معروف",
     "kpi.rules":"القواعد الفعّالة","kpi.foot.forwarded":"مُمرَّرة إلى الخادم","kpi.foot.denied":"مرفوضة عند البوابة",
     "kpi.foot.oftotal":"من كل الحركة","kpi.foot.perreq":"لكل طلب","kpi.foot.entries":"مدخلات فعّالة",
-    "kpi.foot.ofrules":"من أصل {n}","kpi.foot.since":"منذ البدء","kpi.foot.inflight":"معدّل + سلوك",
+    "kpi.foot.ofrules":"من أصل {n}","kpi.foot.since":"منذ البدء","kpi.foot.inflight":"عملاء فريدون متتبَّعون",
     "posture.paranoia":"مستوى التشدد","posture.anomaly":"عتبة الشذوذ","posture.backend":"الخادم الخلفي",
     "posture.listen":"المنفذ العام","posture.tls":"TLS","posture.failclosed":"الرفض الافتراضي","posture.on":"مُفعّل","posture.off":"مُعطّل",
     "layer.protocol":"البروتوكول","layer.decoding":"فك التشفير","layer.rules":"محرك القواعد","layer.rate_limit":"تحديد المعدل",
@@ -424,7 +428,7 @@ function render(){
   renderKPIs(m,info,bl,tr);
   renderCats(m.by_category||{});
   renderLayers(m,info);
-  renderPosture(info,bl);
+  renderPosture(info,bl,latest.backend_health||{});
   renderEvents(latest.events||[]);
   drawTraffic();
   const meta=[];
@@ -439,11 +443,12 @@ function renderKPIs(m,info,bl,tr){
     {label:T("kpi.total"),  val:fmt(m.total_requests), foot:T("kpi.foot.since"), ic:"M3 12h4l3 8 4-16 3 8h4", cls:""},
     {label:T("kpi.allowed"),val:fmt(m.allowed_requests), foot:T("kpi.foot.forwarded"), ic:"M20 6 9 17l-5-5", cls:"accent-good"},
     {label:T("kpi.blocked"),val:fmt(m.blocked_requests), foot:T("kpi.foot.denied"), ic:"M18 6 6 18M6 6l12 12", cls:"accent-bad"},
-    {label:T("kpi.blockrate"),val:rate.toFixed(1)+"%", foot:T("kpi.foot.oftotal"), ic:"M12 20V10M18 20V4M6 20v-4", cls:rate>15?"accent-bad":rate>0?"accent-warn":""},
-    {label:T("kpi.latency"),val:(m.avg_latency_ms||0).toFixed(2)+" ms", foot:T("kpi.foot.perreq"), ic:"M12 6v6l4 2M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", cls:""},
+    {label:T("kpi.blockrate"),val:m.total_requests>0?rate.toFixed(1)+"%":"—", foot:T("kpi.foot.oftotal"), ic:"M12 20V10M18 20V4M6 20v-4", cls:rate>15?"accent-bad":rate>0?"accent-warn":""},
+    {label:T("kpi.latency"),val:m.latency_samples>0?Number(m.avg_latency_ms).toFixed(2)+" ms":"—", foot:T("kpi.foot.perreq"), ic:"M12 6v6l4 2M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", cls:""},
     {label:T("kpi.uptime"),val:humanDur(m.uptime_seconds), foot:T("kpi.foot.since"), ic:"M12 8v4l3 3M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18", cls:""},
     {label:T("kpi.tracked"),val:fmt(tr.clients), foot:T("kpi.foot.inflight"), ic:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M23 21v-2a4 4 0 0 0-3-3.9", cls:""},
     {label:T("kpi.blocklist"),val:fmt(bl.entries), foot:T("kpi.foot.entries"), ic:"M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4z", cls:bl.entries>0?"accent-warn":""},
+    {label:T("kpi.proxy_errors"),val:fmt(m.proxy_errors), foot:T("kpi.foot.upstream"), ic:"M12 8v4m0 4h.01M5.07 19h13.86a2 2 0 0 0 1.73-3L13.73 4a2 2 0 0 0-3.46 0L3.34 16a2 2 0 0 0 1.73 3z", cls:m.proxy_errors>0?"accent-bad":""},
     {label:T("kpi.rules"),val:fmt(info.rules_active), foot:T("kpi.foot.ofrules",{n:info.rules_total||0}), ic:"M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11", cls:""},
   ];
   document.getElementById("kpis").innerHTML = cards.map(c=>`
@@ -484,7 +489,7 @@ function renderLayers(m,info){
   }).join("");
 }
 
-function renderPosture(info,bl){
+function renderPosture(info,bl,backend){
   const on=v=>`<span class="tag ${v?"on":"off"}">${v?T("posture.on"):T("posture.off")}</span>`;
   const rows=[
     [T("posture.paranoia"), (info.paranoia_level||"—")+" / 4"],
@@ -493,6 +498,7 @@ function renderPosture(info,bl){
     [T("posture.failclosed"), on(info.fail_closed!==false)],
     [T("posture.listen"), info.public_listen||"—"],
     [T("posture.backend"), info.backend||"—"],
+    [T("posture.backend_health"), T("backend."+((backend.state||"unknown").toLowerCase()))],
   ];
   document.getElementById("posture").innerHTML = rows.map(([k,v])=>
     `<div class="prow"><span class="pk">${k}</span><span class="pv">${v}</span></div>`).join("");

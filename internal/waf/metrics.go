@@ -103,6 +103,7 @@ type Snapshot struct {
 	CSRFBlocked     int64            `json:"csrf_blocked"`
 	BehaviorBlocked int64            `json:"behavior_blocked"`
 	AvgLatencyMS    float64          `json:"avg_latency_ms"`
+	LatencySamples  int64            `json:"latency_samples"`
 	BlockRate       float64          `json:"block_rate"`
 	ByCategory      map[string]int64 `json:"by_category"`
 	ByRule          map[string]int64 `json:"by_rule"`
@@ -129,8 +130,9 @@ func (m *Metrics) Snapshot() Snapshot {
 	total := m.totalRequests.Load()
 	blocked := m.blockedRequests.Load()
 	var avgLatency, blockRate float64
-	if c := m.latencyCount.Load(); c > 0 {
-		avgLatency = float64(m.latencyNanos.Load()) / float64(c) / 1e6
+	latencySamples := m.latencyCount.Load()
+	if latencySamples > 0 {
+		avgLatency = float64(m.latencyNanos.Load()) / float64(latencySamples) / 1e6
 	}
 	if total > 0 {
 		blockRate = float64(blocked) / float64(total)
@@ -149,6 +151,7 @@ func (m *Metrics) Snapshot() Snapshot {
 		CSRFBlocked:     m.csrfBlocked.Load(),
 		BehaviorBlocked: m.behaviorBlocked.Load(),
 		AvgLatencyMS:    avgLatency,
+		LatencySamples:  latencySamples,
 		BlockRate:       blockRate,
 		ByCategory:      cat,
 		ByRule:          rule,

@@ -1,6 +1,7 @@
 package waf
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"net"
@@ -23,37 +24,39 @@ const sessionCookie = "nullgate_session"
 // separate address from the public proxy and is disabled by default — the
 // operational surface must never share a port with the attack surface.
 type AdminServer struct {
-	cfg        AdminConfig
-	metrics    *Metrics
-	logger     *Logger
-	blocklist  *Blocklist
-	rules      *RuleEngine
-	sessions   *SessionStore
-	cfgRoot    *Config
-	version    string
-	ruleCount  int
-	totalRules int
+	cfg          AdminConfig
+	metrics      *Metrics
+	logger       *Logger
+	blocklist    *Blocklist
+	rules        *RuleEngine
+	sessions     *SessionStore
+	cfgRoot      *Config
+	version      string
+	ruleCount    int
+	totalRules   int
+	backendProbe func(context.Context) BackendHealth
 }
 
 // NewAdminServer wires the admin handler to live subsystems. The full config
 // is passed so the dashboard can report the effective security posture; only
 // non-secret fields are ever serialized out (see AdminInfo). The rule engine is
 // held so the dashboard can retune the paranoia level live without a restart.
-func NewAdminServer(cfg AdminConfig, root *Config, m *Metrics, l *Logger, bl *Blocklist, re *RuleEngine, version string, ruleCount, totalRules int) *AdminServer {
+func NewAdminServer(cfg AdminConfig, root *Config, m *Metrics, l *Logger, bl *Blocklist, re *RuleEngine, version string, ruleCount, totalRules int, backendProbe func(context.Context) BackendHealth) *AdminServer {
 	ttl := time.Duration(cfg.SessionTTLMin) * time.Minute
 	sessions := NewSessionStore(ttl)
 	go sessions.Cleanup(time.Minute)
 	return &AdminServer{
-		cfg:        cfg,
-		metrics:    m,
-		logger:     l,
-		blocklist:  bl,
-		rules:      re,
-		sessions:   sessions,
-		cfgRoot:    root,
-		version:    version,
-		ruleCount:  ruleCount,
-		totalRules: totalRules,
+		cfg:          cfg,
+		metrics:      m,
+		logger:       l,
+		blocklist:    bl,
+		rules:        re,
+		sessions:     sessions,
+		cfgRoot:      root,
+		version:      version,
+		ruleCount:    ruleCount,
+		totalRules:   totalRules,
+		backendProbe: backendProbe,
 	}
 }
 
@@ -153,6 +156,7 @@ func (a *AdminServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"tracked": map[string]interface{}{
 			"clients": a.metrics.TotalTracked(),
 		},
+		"backend_health": a.backendHealth(r.Context()),
 	})
 }
 
@@ -237,8 +241,18 @@ func (a *AdminServer) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"tracked": map[string]interface{}{
 			"clients": a.metrics.TotalTracked(),
 		},
-		"events": a.logger.RecentEvents(100),
+		"events":         a.logger.RecentEvents(100),
+		"backend_health": a.backendHealth(r.Context()),
 	})
+}
+
+func (a *AdminServer) backendHealth(ctx context.Context) BackendHealth {
+	if a.backendProbe == nil {
+		return BackendHealth{State: "unknown"}
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	return a.backendProbe(probeCtx)
 }
 
 // handleHealthz is an unauthenticated-friendly liveness probe (still subject to
