@@ -30,9 +30,13 @@ journalctl -u nullgate -f
 
 ## Operational tips
 
-- Set `logging.output: file` and point `file_path` under `/var/log/nullgate` (the
-  only writable path in the unit).
+- Set `logging.output: file` and point `file_path` under `/var/log/nullgate`.
+  The unit also grants `/var/lib/nullgate` for the persistent app registry and
+  AutoTLS cache.
 - Put the admin dashboard on the loopback socket with a `password_hash`, or omit
   it entirely (`admin.enabled: false`) for pure edge deployments.
+- Set `applications.allowed_upstream_hosts` to the exact trusted authorities
+  for app-specific backends. Persist `/var/lib/nullgate/apps.json` when using
+  the dashboard to manage applications.
 - Enable TLS at the WAF, or terminate at an upstream proxy and list that proxy in
   `trusted_proxies` so client-IP resolution stays spoof-proof.

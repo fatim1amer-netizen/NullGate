@@ -1,11 +1,10 @@
 # ── NullGate WAF — full demo stack ───────────────────────────────────────────
-# `docker compose up` brings up the WAF in front of a deliberately-vulnerable
-# demo backend so you can watch NullGate block real attacks end-to-end.
+# `docker compose up` starts two in-process synthetic apps behind the WAF.
+# No vulnerable backend listener is created or published.
 #
-#   WAF        →  http://localhost:8080   (public, protected entry point)
+#   WAF        →  http://127.0.0.1:8080   (loopback-only demo entry point)
 #   metrics    →  http://localhost:8080/metrics
-#   admin      →  http://localhost:9091   (dashboard, localhost only)
-#   backend    →  internal only (never exposed directly)
+#   admin      →  disabled unless explicitly configured with authentication
 
 services:
   waf:
@@ -17,18 +16,13 @@ services:
     container_name: nullgate-waf
     restart: unless-stopped
     ports:
-      - "8080:8080"   # public traffic + /metrics
-      - "9091:9091"   # admin dashboard (bind to localhost in production)
+      - "127.0.0.1:8080:8080"   # keep intentionally weak synthetic demos local
     volumes:
       - ./configs/config.yaml:/configs/config.yaml:ro
-    environment:
-      # The demo config points the backend at the compose service name.
-      - NULLGATE_TARGET=http://backend:3000
-    depends_on:
-      - backend
+      - nullgate-data:/data
+    command: ["--config", "/configs/config.yaml", "--app-registry", "/data/apps.json", "--demo"]
     networks:
       - edge
-      - internal
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -40,22 +34,9 @@ services:
       timeout: 3s
       retries: 3
 
-  backend:
-    build:
-      context: .
-      dockerfile: examples/vulnerable-backend/Dockerfile
-    image: nullgate-demo-backend:latest
-    container_name: nullgate-backend
-    restart: unless-stopped
-    # NOT published to the host: reachable only through the WAF.
-    expose:
-      - "3000"
-    networks:
-      - internal
-
 networks:
   edge:
     driver: bridge
-  internal:
-    driver: bridge
-    internal: true
+
+volumes:
+  nullgate-data:

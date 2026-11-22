@@ -2,7 +2,7 @@
 # Multi-stage build for a minimal, secure container
 
 # Stage 1: Build the Go binary
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -38,7 +38,8 @@ COPY --from=builder /build/nullgate /app/nullgate
 # Create directories
 RUN mkdir -p /var/lib/nullgate/autocert && \
     mkdir -p /var/log/nullgate && \
-    chown -R nullgate:nullgate /var/lib/nullgate /var/log/nullgate
+    mkdir -p /app/data && \
+    chown -R nullgate:nullgate /var/lib/nullgate /var/log/nullgate /app/data
 
 # Drop privileges
 USER nullgate

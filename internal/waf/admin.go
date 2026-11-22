@@ -3,6 +3,8 @@ package waf
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -33,6 +35,12 @@ type AdminServer struct {
 	version    string
 	ruleCount  int
 	totalRules int
+	apps       *ApplicationManager
+}
+
+// SetApplicationManager enables app management on this admin server.
+func (a *AdminServer) SetApplicationManager(apps *ApplicationManager) {
+	a.apps = apps
 }
 
 // NewAdminServer wires the admin handler to live subsystems. The full config
@@ -68,12 +76,19 @@ func (a *AdminServer) Handler() http.Handler {
 	protected.HandleFunc("/api/events", a.handleEvents)
 	protected.HandleFunc("/api/info", a.handleInfo)
 	protected.HandleFunc("/api/overview", a.handleOverview)
+	protected.HandleFunc("/api/apps", a.handleApplications)
+	protected.HandleFunc("/api/apps/metrics", a.handleApplicationMetrics)
+	protected.HandleFunc("/api/apps/evaluation", a.handleApplicationEvaluation)
 	// Live control surface (all POST, all gated on ReadOnly).
 	protected.HandleFunc("/api/admin/block-ip", a.handleBlockIP)
 	protected.HandleFunc("/api/admin/unblock-ip", a.handleUnblockIP)
 	protected.HandleFunc("/api/admin/set-paranoia", a.handleSetParanoia)
 	protected.HandleFunc("/api/admin/blocklist", a.handleBlocklist)
 	protected.HandleFunc("/api/admin/scan", a.handleScan)
+	protected.HandleFunc("/api/admin/apps/upsert", a.handleApplicationUpsert)
+	protected.HandleFunc("/api/admin/apps/delete", a.handleApplicationDelete)
+	protected.HandleFunc("/api/admin/apps/rules", a.handleApplicationRules)
+	protected.HandleFunc("/api/admin/apps/compare", a.handleApplicationCompare)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login", a.handleLoginPage)
@@ -112,6 +127,10 @@ func (a *AdminServer) withLocalhost(next http.Handler) http.Handler {
 func (a *AdminServer) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.PasswordHash == "" {
+			if isApplicationAdminPath(r.URL.Path) {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "application APIs require admin password authentication"})
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -126,6 +145,10 @@ func (a *AdminServer) requireSession(next http.Handler) http.Handler {
 		}
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
+}
+
+func isApplicationAdminPath(path string) bool {
+	return strings.HasPrefix(path, "/api/apps") || strings.HasPrefix(path, "/api/admin/apps/")
 }
 
 func (a *AdminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +263,216 @@ func (a *AdminServer) handleOverview(w http.ResponseWriter, r *http.Request) {
 		},
 		"events": a.logger.RecentEvents(100),
 	})
+}
+
+func (a *AdminServer) handleApplications(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	type appView struct {
+		Application ProtectedApplication `json:"application"`
+		Metrics     *Snapshot            `json:"metrics,omitempty"`
+		Events      []Event              `json:"events,omitempty"`
+	}
+	apps := a.apps.Applications()
+	views := make([]appView, 0, len(apps))
+	for _, app := range apps {
+		view := appView{Application: app}
+		if metrics, ok := a.apps.ApplicationMetrics(app.ID); ok {
+			view.Metrics = &metrics.Metrics
+			view.Events = metrics.Events
+		}
+		views = append(views, view)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"applications": views,
+		"rules":        a.apps.ApplicationRules(),
+	})
+}
+
+func (a *AdminServer) handleApplicationMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	id := r.URL.Query().Get("id")
+	metrics, ok := a.apps.ApplicationMetrics(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "application not found or disabled"})
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
+}
+
+func (a *AdminServer) handleApplicationEvaluation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	results, err := a.apps.EvaluateApplications()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "application evaluation failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"corpus":  "built-in labeled self-test corpus; not production traffic",
+		"results": results,
+	})
+}
+
+func (a *AdminServer) handleApplicationUpsert(w http.ResponseWriter, r *http.Request) {
+	if !a.guardApplicationWrite(w, r) {
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	var app ProtectedApplication
+	if err := decodeAdminJSON(w, r, &app, 32<<10); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid application request"})
+		return
+	}
+	if app.ID == "" {
+		id, err := NewApplicationID()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not generate application ID"})
+			return
+		}
+		app.ID = id
+	}
+	if err := a.apps.UpsertApplication(app); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	a.logger.Info("admin application saved", map[string]interface{}{
+		"application_id": app.ID, "hostname": app.Hostname, "by": clientHost(r),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "saved", "application_id": app.ID})
+}
+
+func (a *AdminServer) handleApplicationDelete(w http.ResponseWriter, r *http.Request) {
+	if !a.guardApplicationWrite(w, r) {
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := decodeAdminJSON(w, r, &req, 4096); err != nil || req.ID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid application ID"})
+		return
+	}
+	if err := a.apps.DeleteApplication(req.ID); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	a.logger.Warn("admin application removed", map[string]interface{}{
+		"application_id": req.ID, "by": clientHost(r),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "removed", "application_id": req.ID})
+}
+
+func (a *AdminServer) handleApplicationRules(w http.ResponseWriter, r *http.Request) {
+	if !a.guardApplicationWrite(w, r) {
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	var req struct {
+		Rules []ApplicationRule `json:"rules"`
+	}
+	if err := decodeAdminJSON(w, r, &req, 64<<10); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid rule request"})
+		return
+	}
+	if err := a.apps.SetRules(req.Rules); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	a.logger.Info("admin application rules updated", map[string]interface{}{
+		"count": len(req.Rules), "by": clientHost(r),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "saved", "count": len(req.Rules)})
+}
+
+func (a *AdminServer) handleApplicationCompare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cfg.PasswordHash == "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "comparison requires admin password authentication"})
+		return
+	}
+	ip := net.ParseIP(strings.Trim(clientHost(r), "[]"))
+	if ip == nil || !ip.IsLoopback() {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "demo comparisons are restricted to localhost"})
+		return
+	}
+	if a.apps == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "application manager unavailable"})
+		return
+	}
+	var req struct {
+		ApplicationID string `json:"application_id"`
+		Method        string `json:"method"`
+		Target        string `json:"target"`
+		Body          string `json:"body"`
+		ContentType   string `json:"content_type"`
+	}
+	if err := decodeAdminJSON(w, r, &req, 24<<10); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid comparison request"})
+		return
+	}
+	result, err := a.apps.CompareDemo(req.ApplicationID, req.Method, req.Target, req.Body, req.ContentType)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *AdminServer) guardApplicationWrite(w http.ResponseWriter, r *http.Request) bool {
+	if !a.guardWrite(w, r) {
+		return false
+	}
+	if a.cfg.PasswordHash == "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "application management requires admin password authentication"})
+		return false
+	}
+	return true
+}
+
+func decodeAdminJSON(w http.ResponseWriter, r *http.Request, dst interface{}, maxBytes int64) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("request must contain exactly one JSON value")
+	}
+	return nil
 }
 
 // handleHealthz is an unauthenticated-friendly liveness probe (still subject to

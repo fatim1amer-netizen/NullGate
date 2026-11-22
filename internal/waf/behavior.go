@@ -14,6 +14,7 @@ import (
 // behaving like a scanner even when no individual request is decisive.
 type BehaviorTracker struct {
 	cfg       BehaviorConfig
+	stop      <-chan struct{}
 	mu        sync.Mutex
 	clients   map[string]*behaviorState
 	blocklist *Blocklist
@@ -31,9 +32,14 @@ type behaviorState struct {
 
 // NewBehaviorTracker wires the tracker to a shared blocklist so that a client
 // found to be a scanner is blocked across all subsystems.
-func NewBehaviorTracker(cfg BehaviorConfig, bl *Blocklist) *BehaviorTracker {
+func NewBehaviorTracker(cfg BehaviorConfig, bl *Blocklist, stopChannels ...<-chan struct{}) *BehaviorTracker {
+	var stop <-chan struct{}
+	if len(stopChannels) > 0 {
+		stop = stopChannels[0]
+	}
 	bt := &BehaviorTracker{
 		cfg:       cfg,
+		stop:      stop,
 		clients:   make(map[string]*behaviorState),
 		blocklist: bl,
 	}
@@ -178,14 +184,19 @@ func looksSuspiciousUA(ua string) bool {
 func (bt *BehaviorTracker) cleanup() {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		bt.mu.Lock()
-		for ip, st := range bt.clients {
-			if now.Sub(st.lastSeen) > 10*time.Minute {
-				delete(bt.clients, ip)
+	for {
+		select {
+		case <-bt.stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			bt.mu.Lock()
+			for ip, st := range bt.clients {
+				if now.Sub(st.lastSeen) > 10*time.Minute {
+					delete(bt.clients, ip)
+				}
 			}
+			bt.mu.Unlock()
 		}
-		bt.mu.Unlock()
 	}
 }

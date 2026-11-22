@@ -191,6 +191,28 @@ footer.foot{margin-top:26px;text-align:center;color:var(--faint);font-size:12px;
 .badge-fc{display:inline-flex;align-items:center;gap:6px;color:var(--good);font-weight:600}
 .hidden{display:none!important}
 .skeleton{color:var(--faint)}
+.app-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.app-form input,.app-form select{min-width:0;height:36px;border:1px solid var(--border);border-radius:8px;
+  background:var(--panel-solid);color:var(--fg);padding:0 10px}
+.app-form label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+.app-table{width:100%;border-collapse:collapse;font-size:12px}
+.app-table th,.app-table td{text-align:start;padding:9px;border-bottom:1px solid var(--border);vertical-align:top}
+.app-table th{color:var(--muted);font-size:10px;text-transform:uppercase}
+.app-actions{display:flex;gap:6px;flex-wrap:wrap}
+.app-actions button,.app-button{border:1px solid var(--border-strong);border-radius:7px;padding:5px 9px;
+  background:var(--panel-solid);color:var(--fg);cursor:pointer}
+.app-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.app-muted{color:var(--muted);font-size:12px}
+.app-rule{display:grid;grid-template-columns:1fr 2fr 1fr auto;gap:8px;align-items:center;margin-top:8px}
+.app-rule code{overflow-wrap:anywhere}
+.app-compare{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:14px}
+.app-compare input,.app-compare select,.app-compare textarea{min-width:0;border:1px solid var(--border);border-radius:8px;
+  background:var(--panel-solid);color:var(--fg);padding:8px}
+.app-compare textarea{min-height:74px;grid-column:1/-1;font:12px var(--mono)}
+.compare-result{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.compare-result pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;background:var(--bg2);
+  border:1px solid var(--border);border-radius:8px;padding:10px;font:11px/1.45 var(--mono)}
+@media(max-width:720px){.app-table-wrap{overflow:auto}.app-rule{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -232,6 +254,79 @@ footer.foot{margin-top:26px;text-align:center;color:var(--faint);font-size:12px;
       </button>
     </div>
   </header>
+
+  <section class="card" id="protectedApps" style="margin-bottom:16px">
+    <h2 data-i18n="apps.title">Protected Applications</h2>
+    <p class="app-muted" data-i18n="apps.description">Host-based routing, isolated policy and live per-app security metrics.</p>
+    <button class="app-button" type="button" id="evaluateApps">Evaluate labeled corpus</button>
+    <div id="appEvalResults" class="app-muted" style="margin:8px 0"></div>
+    <form class="app-form" id="appForm">
+      <input id="appId" type="hidden">
+      <input id="appDemoKind" type="hidden">
+      <input id="appName" required maxlength="120" placeholder="Application name" aria-label="Application name">
+      <input id="appHostname" required maxlength="253" placeholder="Hostname (shop.example.com)" aria-label="Hostname">
+      <input id="appBackend" required placeholder="Backend URL (https://...)" aria-label="Backend URL">
+      <select id="appProfile" aria-label="WAF profile">
+        <option value="relaxed">Relaxed profile</option>
+        <option value="balanced" selected>Balanced profile</option>
+        <option value="strict">Strict profile</option>
+      </select>
+      <input id="appParanoia" type="number" min="1" max="4" placeholder="Paranoia override (profile default)" aria-label="Application paranoia level">
+      <input id="appThreshold" type="number" min="1" placeholder="Anomaly threshold override" aria-label="Application anomaly threshold">
+      <select id="appRateLimit" aria-label="Application rate-limit policy">
+        <option value="">Global rate-limit setting</option>
+        <option value="true">Rate limit enabled</option>
+        <option value="false">Rate limit disabled</option>
+      </select>
+      <input id="appRPS" type="number" min="0" placeholder="Requests / second (0 = global)" aria-label="Requests per second">
+      <input id="appBurst" type="number" min="0" placeholder="Rate-limit burst" aria-label="Rate-limit burst">
+      <label><input id="appEnabled" type="checkbox" checked> <span data-i18n="apps.enabled">Enabled</span></label>
+      <button class="app-button primary" type="submit" data-i18n="apps.save">Save application</button>
+      <button class="app-button" type="button" id="appCancel" data-i18n="apps.cancel">Clear form</button>
+    </form>
+    <div class="app-table-wrap">
+      <table class="app-table">
+        <thead><tr>
+          <th data-i18n="apps.name">Application</th><th data-i18n="apps.host">Hostname / Upstream</th>
+          <th data-i18n="apps.state">State</th><th data-i18n="apps.traffic">Traffic / Blocks</th><th data-i18n="apps.actions">Actions</th>
+        </tr></thead>
+        <tbody id="appRows"><tr><td colspan="5" class="app-muted" data-i18n="apps.loading">Loading applications…</td></tr></tbody>
+      </table>
+    </div>
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
+      <h2 data-i18n="apps.rules">Application-specific rule builder</h2>
+      <form class="app-form" id="ruleForm">
+        <input id="ruleId" required maxlength="63" placeholder="Rule ID" aria-label="Rule ID">
+        <input id="rulePattern" required maxlength="512" placeholder="Regular expression pattern" aria-label="Regular expression pattern">
+        <select id="ruleScope" aria-label="Rule scope">
+          <option value="app">Selected applications</option><option value="global">Global</option>
+        </select>
+        <select id="ruleApps" multiple size="2" aria-label="Applications for this rule"></select>
+        <button class="app-button primary" type="submit" data-i18n="apps.assign">Save rule assignment</button>
+      </form>
+      <div id="ruleRows" class="app-muted"></div>
+    </div>
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
+      <h2 data-i18n="apps.compare">Protected / unprotected demo comparison</h2>
+      <p class="app-muted">Synthetic demo apps only. The unprotected request is executed in-process and only returned through this localhost admin interface.</p>
+      <form class="app-compare" id="compareForm">
+        <select id="compareApp" required aria-label="Demo application"></select>
+        <select id="compareMethod" aria-label="HTTP method">
+          <option>GET</option><option>POST</option><option>PUT</option>
+        </select>
+        <input id="compareTarget" value="/search?q=books" required aria-label="Request path and query">
+        <input id="compareType" value="application/x-www-form-urlencoded" aria-label="Content type">
+        <textarea id="compareBody" placeholder="Editable request body, for example guest=Demo%20Guest"></textarea>
+        <button class="app-button primary" type="submit">Run real comparison</button>
+      </form>
+      <div class="compare-result">
+        <div><strong>Protected (actual WAF pipeline)</strong><pre id="compareProtected">Run a comparison to see the observed response.</pre></div>
+        <div><strong>Unprotected (isolated synthetic backend)</strong><pre id="compareUnprotected">No request has been run.</pre></div>
+      </div>
+      <pre id="compareDecision" class="app-muted">WAF decision and matched rules will appear here.</pre>
+    </div>
+    <div id="appMessage" class="app-muted" role="status" aria-live="polite"></div>
+  </section>
 
   <!-- KPI cards -->
   <div class="grid kpis" id="kpis"></div>
@@ -337,6 +432,11 @@ const I18N = {
     "kpi.foot.ofrules":"of {n} total","kpi.foot.since":"since start","kpi.foot.inflight":"rate-limit + behavior",
     "posture.paranoia":"Paranoia Level","posture.anomaly":"Anomaly Threshold","posture.backend":"Backend",
     "posture.listen":"Public Listener","posture.tls":"TLS","posture.failclosed":"Fail-Closed","posture.on":"ON","posture.off":"OFF",
+    "apps.title":"Protected Applications","apps.description":"Host-based routing, isolated policy and live per-app security metrics.",
+    "apps.enabled":"Enabled","apps.save":"Save application","apps.cancel":"Clear form","apps.name":"Application",
+    "apps.host":"Hostname / Upstream","apps.state":"State","apps.traffic":"Traffic / Blocks","apps.actions":"Actions",
+    "apps.loading":"Loading applications…","apps.rules":"Application-specific rule builder","apps.assign":"Save rule assignment",
+    "apps.compare":"Protected / unprotected demo comparison",
     "layer.protocol":"Protocol","layer.decoding":"Decoder","layer.rules":"Rule Engine","layer.rate_limit":"Rate Limit",
     "layer.pow":"Proof-of-Work","layer.bot":"Bot Guard","layer.honeypot":"Honeypot","layer.behavior":"Behavior",
     "layer.csrf":"CSRF","layer.tarpit":"Tarpit","layer.response":"Hardening","layer.disabled":"disabled"
@@ -360,6 +460,11 @@ const I18N = {
     "kpi.foot.ofrules":"من أصل {n}","kpi.foot.since":"منذ البدء","kpi.foot.inflight":"معدّل + سلوك",
     "posture.paranoia":"مستوى التشدد","posture.anomaly":"عتبة الشذوذ","posture.backend":"الخادم الخلفي",
     "posture.listen":"المنفذ العام","posture.tls":"TLS","posture.failclosed":"الرفض الافتراضي","posture.on":"مُفعّل","posture.off":"مُعطّل",
+    "apps.title":"التطبيقات المحمية","apps.description":"توجيه حسب اسم المضيف وسياسات ومقاييس أمنية مستقلة لكل تطبيق.",
+    "apps.enabled":"مُفعّل","apps.save":"حفظ التطبيق","apps.cancel":"مسح النموذج","apps.name":"التطبيق",
+    "apps.host":"اسم المضيف / الخادم","apps.state":"الحالة","apps.traffic":"الحركة / الحظر","apps.actions":"الإجراءات",
+    "apps.loading":"جارٍ تحميل التطبيقات…","apps.rules":"منشئ القواعد الخاصة بالتطبيقات","apps.assign":"حفظ إسناد القاعدة",
+    "apps.compare":"مقارنة محمية / غير محمية للتطبيقات التجريبية",
     "layer.protocol":"البروتوكول","layer.decoding":"فك التشفير","layer.rules":"محرك القواعد","layer.rate_limit":"تحديد المعدل",
     "layer.pow":"إثبات العمل","layer.bot":"حارس الروبوتات","layer.honeypot":"مصيدة","layer.behavior":"السلوك",
     "layer.csrf":"CSRF","layer.tarpit":"المصيدة الزمنية","layer.response":"التحصين","layer.disabled":"معطّل"
@@ -384,6 +489,7 @@ function applyTheme(){ document.documentElement.dataset.theme = theme; }
 
 /* ============================ State ============================ */
 let paused=false, timer=null, latest=null, evFilter="ALL", evQuery="";
+let appState={applications:[],rules:[]};
 const history=[]; const MAXPTS=40;
 let prevTotals=null;
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -400,6 +506,7 @@ async function tick(){
     if(!r.ok) throw new Error(r.status);
     latest = await r.json();
     setConn(true);
+    await refreshApps();
     // build traffic history by diffing cumulative counters
     const m = latest.metrics||{};
     if(prevTotals){
@@ -426,6 +533,7 @@ function render(){
   renderLayers(m,info);
   renderPosture(info,bl);
   renderEvents(latest.events||[]);
+  renderApps();
   drawTraffic();
   const meta=[];
   if(info.rules_active!=null) meta.push(info.rules_active+"/"+info.rules_total+" rules");
@@ -521,6 +629,193 @@ function renderEvents(events){
   }).join("");
 }
 function esc(s){ return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+async function adminJSON(path,body){
+  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  let result={};
+  try{result=await response.json();}catch(_){}
+  if(!response.ok) throw new Error(result.error||("HTTP "+response.status));
+  return result;
+}
+async function refreshApps(){
+  try{
+    const response=await fetch("api/apps",{cache:"no-store"});
+    if(!response.ok) throw new Error("HTTP "+response.status);
+    appState=await response.json();
+    renderApps();
+  }catch(error){
+    document.getElementById("appRows").innerHTML=`<tr><td colspan="5" class="app-muted">${esc(error.message)}</td></tr>`;
+  }
+}
+function renderApps(){
+  const rows=document.getElementById("appRows");
+  if(!rows) return;
+  const apps=(appState.applications||[]);
+  rows.innerHTML=apps.length?apps.map(view=>{
+    const app=view.application||{}, metrics=view.metrics||{};
+    return `<tr>
+      <td><strong>${esc(app.name||"")}</strong><div class="app-muted">${esc(app.id||"")}</div></td>
+      <td>${esc(app.hostname||"")}<div class="app-muted">${esc(app.backend_url||"")}</div></td>
+      <td>${app.enabled?"Enabled":"Disabled"}</td>
+      <td>${fmt(metrics.total_requests||0)} / ${fmt(metrics.blocked_requests||0)}</td>
+      <td><div class="app-actions">
+        <button data-app-action="edit" data-id="${esc(app.id||"")}">Edit</button>
+        <button data-app-action="toggle" data-id="${esc(app.id||"")}">${app.enabled?"Disable":"Enable"}</button>
+        <button data-app-action="delete" data-id="${esc(app.id||"")}">Remove</button>
+      </div></td></tr>`;
+  }).join(""):`<tr><td colspan="5" class="app-muted">No applications registered. Add an application to enable host-based routing.</td></tr>`;
+  const select=document.getElementById("ruleApps");
+  const selected=new Set(Array.from(select.selectedOptions).map(option=>option.value));
+  select.innerHTML=apps.map(view=>{
+    const app=view.application||{};
+    return `<option value="${esc(app.id||"")}" ${selected.has(app.id)?"selected":""}>${esc(app.name||app.id||"")}</option>`;
+  }).join("");
+  const compareSelect=document.getElementById("compareApp");
+  const previous=compareSelect.value;
+  const demos=apps.filter(view=>view.application&&view.application.demo_kind);
+  compareSelect.innerHTML=demos.map(view=>{
+    const app=view.application;
+    return `<option value="${esc(app.id)}">${esc(app.name)} (${esc(app.hostname)})</option>`;
+  }).join("");
+  if(demos.some(view=>view.application.id===previous)) compareSelect.value=previous;
+  if(!demos.length) compareSelect.innerHTML='<option value="">Register a built-in demo to compare</option>';
+  const ruleRows=document.getElementById("ruleRows");
+  ruleRows.innerHTML=(appState.rules||[]).length?(appState.rules||[]).map(rule=>{
+    const scope=rule.global?"Global":(rule.application_ids||[]).join(", ");
+    return `<div class="app-rule"><strong>${esc(rule.id)}</strong><code>${esc(rule.pattern)}</code><span>${esc(scope)}</span>
+      <button class="app-button" data-rule-delete="${esc(rule.id)}">Remove</button></div>`;
+  }).join(""):"No custom rules assigned.";
+}
+function showAppMessage(text,isError){
+  const el=document.getElementById("appMessage");
+  el.textContent=text; el.style.color=isError?"var(--bad)":"var(--good)";
+}
+function clearAppForm(){
+  document.getElementById("appForm").reset();
+  document.getElementById("appId").value="";
+  document.getElementById("appDemoKind").value="";
+  document.getElementById("appEnabled").checked=true;
+  document.getElementById("appProfile").value="balanced";
+  document.getElementById("appParanoia").value="";
+  document.getElementById("appThreshold").value="";
+  document.getElementById("appRateLimit").value="";
+  document.getElementById("appRPS").value="";
+  document.getElementById("appBurst").value="";
+}
+document.getElementById("appForm").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const rps=Number(document.getElementById("appRPS").value||0);
+  const burst=Number(document.getElementById("appBurst").value||0);
+  const paranoia=Number(document.getElementById("appParanoia").value||0);
+  const threshold=Number(document.getElementById("appThreshold").value||0);
+  const app={id:document.getElementById("appId").value,name:document.getElementById("appName").value,
+    hostname:document.getElementById("appHostname").value,backend_url:document.getElementById("appBackend").value,
+    enabled:document.getElementById("appEnabled").checked,policy:{profile:document.getElementById("appProfile").value}};
+  const demoKind=document.getElementById("appDemoKind").value;
+  if(demoKind) app.demo_kind=demoKind;
+  const rateLimit=document.getElementById("appRateLimit").value;
+  if(rateLimit!=="") app.policy.rate_limit_enabled=rateLimit==="true";
+  if(paranoia>0) app.policy.paranoia_level=paranoia;
+  if(threshold>0) app.policy.anomaly_threshold=threshold;
+  if(rps>0){app.policy.requests_per_second=rps;app.policy.burst_size=burst;}
+  try{
+    const result=await adminJSON("api/admin/apps/upsert",app);
+    showAppMessage("Saved "+result.application_id,false); clearAppForm(); await refreshApps();
+  }catch(error){showAppMessage(error.message,true);}
+});
+document.getElementById("appCancel").onclick=clearAppForm;
+document.getElementById("appRows").addEventListener("click",async event=>{
+  const button=event.target.closest("button[data-app-action]");
+  if(!button) return;
+  const id=button.dataset.id, view=(appState.applications||[]).find(item=>item.application.id===id);
+  if(!view) return;
+  const app=view.application;
+  if(button.dataset.appAction==="edit"){
+    document.getElementById("appId").value=app.id;
+    document.getElementById("appDemoKind").value=app.demo_kind||"";
+    document.getElementById("appName").value=app.name;
+    document.getElementById("appHostname").value=app.hostname;
+    document.getElementById("appBackend").value=app.backend_url;
+    document.getElementById("appEnabled").checked=app.enabled;
+    document.getElementById("appProfile").value=app.policy.profile||"balanced";
+    document.getElementById("appParanoia").value=app.policy.paranoia_level||"";
+    document.getElementById("appThreshold").value=app.policy.anomaly_threshold||"";
+    document.getElementById("appRateLimit").value=app.policy.rate_limit_enabled===undefined?"":String(app.policy.rate_limit_enabled);
+    document.getElementById("appRPS").value=app.policy.requests_per_second||"";
+    document.getElementById("appBurst").value=app.policy.burst_size||"";
+    document.getElementById("appName").focus();
+    return;
+  }
+  try{
+    if(button.dataset.appAction==="delete"){
+      if(!window.confirm("Remove "+app.name+" and its routing entry?")) return;
+      await adminJSON("api/admin/apps/delete",{id});
+    }else{
+      await adminJSON("api/admin/apps/upsert",{...app,enabled:!app.enabled});
+    }
+    showAppMessage(button.dataset.appAction==="delete"?"Application removed":"Application state updated",false);
+    await refreshApps();
+  }catch(error){showAppMessage(error.message,true);}
+});
+document.getElementById("ruleForm").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const id=document.getElementById("ruleId").value, pattern=document.getElementById("rulePattern").value;
+  const global=document.getElementById("ruleScope").value==="global";
+  const application_ids=global?[]:Array.from(document.getElementById("ruleApps").selectedOptions).map(option=>option.value);
+  const rules=(appState.rules||[]).filter(rule=>rule.id!==id);
+  rules.push({id,pattern,global,application_ids});
+  try{
+    await adminJSON("api/admin/apps/rules",{rules});
+    showAppMessage("Rule assignment saved",false);
+    document.getElementById("ruleForm").reset(); await refreshApps();
+  }catch(error){showAppMessage(error.message,true);}
+});
+document.getElementById("ruleRows").addEventListener("click",async event=>{
+  const button=event.target.closest("button[data-rule-delete]");
+  if(!button) return;
+  const rules=(appState.rules||[]).filter(rule=>rule.id!==button.dataset.ruleDelete);
+  try{await adminJSON("api/admin/apps/rules",{rules});await refreshApps();showAppMessage("Rule removed",false);}
+  catch(error){showAppMessage(error.message,true);}
+});
+document.getElementById("ruleScope").onchange=event=>{
+  document.getElementById("ruleApps").disabled=event.target.value==="global";
+};
+document.getElementById("evaluateApps").onclick=async()=>{
+  const output=document.getElementById("appEvalResults");
+  output.textContent="Evaluating each application's effective rules against the built-in labeled corpus…";
+  try{
+    const response=await fetch("api/apps/evaluation",{cache:"no-store"});
+    let result={};try{result=await response.json();}catch(_){}
+    if(!response.ok) throw new Error(result.error||("HTTP "+response.status));
+    output.textContent=result.corpus+" — "+(result.results||[]).map(item=>
+      `${item.application_id}: precision ${(item.precision*100).toFixed(1)}%, recall ${(item.recall*100).toFixed(1)}%, FPR ${(item.false_positive_rate*100).toFixed(1)}%, F1 ${(item.f1_score*100).toFixed(1)}%`
+    ).join(" | ");
+  }catch(error){output.textContent="Evaluation failed: "+error.message;}
+};
+document.getElementById("compareForm").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const protectedOut=document.getElementById("compareProtected");
+  const unprotectedOut=document.getElementById("compareUnprotected");
+  const decisionOut=document.getElementById("compareDecision");
+  protectedOut.textContent="Running…"; unprotectedOut.textContent="Running…";
+  try{
+    const result=await adminJSON("api/admin/apps/compare",{
+      application_id:document.getElementById("compareApp").value,
+      method:document.getElementById("compareMethod").value,
+      target:document.getElementById("compareTarget").value,
+      body:document.getElementById("compareBody").value,
+      content_type:document.getElementById("compareType").value
+    });
+    protectedOut.textContent=JSON.stringify(result.protected,null,2);
+    unprotectedOut.textContent=JSON.stringify(result.unprotected,null,2);
+    decisionOut.textContent=JSON.stringify(result.decision,null,2);
+    await refreshApps();
+  }catch(error){
+    protectedOut.textContent="Comparison failed: "+error.message;
+    unprotectedOut.textContent="No unprotected request was completed.";
+    decisionOut.textContent="No WAF decision available.";
+  }
+});
 
 /* ============================ Traffic chart (canvas) ============================ */
 function drawTraffic(){

@@ -34,15 +34,15 @@ type SelfTestResult struct {
 
 // SelfTestReport aggregates all case outcomes.
 type SelfTestReport struct {
-	Results        []SelfTestResult
-	Total          int
-	Malicious      int
-	Benign         int
-	TruePositives  int // malicious correctly blocked
-	FalseNegatives int // malicious missed
-	TrueNegatives  int // benign correctly allowed
-	FalsePositives int // benign wrongly blocked
-	Duration       time.Duration
+	Results        []SelfTestResult `json:"results"`
+	Total          int              `json:"total"`
+	Malicious      int              `json:"malicious"`
+	Benign         int              `json:"benign"`
+	TruePositives  int              `json:"true_positives"`
+	FalseNegatives int              `json:"false_negatives"`
+	TrueNegatives  int              `json:"true_negatives"`
+	FalsePositives int              `json:"false_positives"`
+	Duration       time.Duration    `json:"duration"`
 }
 
 // DetectionRate is TP / (TP + FN).
@@ -61,9 +61,33 @@ func (r *SelfTestReport) FalsePositiveRate() float64 {
 	return float64(r.FalsePositives) / float64(r.Benign)
 }
 
+// Precision is TP / (TP + FP).
+func (r *SelfTestReport) Precision() float64 {
+	if r.TruePositives+r.FalsePositives == 0 {
+		return 0
+	}
+	return float64(r.TruePositives) / float64(r.TruePositives+r.FalsePositives)
+}
+
+// Recall is TP / (TP + FN), equivalent to DetectionRate.
+func (r *SelfTestReport) Recall() float64 { return r.DetectionRate() }
+
+// F1Score is the harmonic mean of precision and recall.
+func (r *SelfTestReport) F1Score() float64 {
+	precision, recall := r.Precision(), r.Recall()
+	if precision+recall == 0 {
+		return 0
+	}
+	return 2 * precision * recall / (precision + recall)
+}
+
 // RunSelfTest evaluates the full corpus against a fresh engine built from cfg.
 func RunSelfTest(cfg *Config) *SelfTestReport {
-	rules := NewRuleEngine(cfg.Rules.ParanoiaLevel, nil)
+	rules := NewRuleEngine(cfg.Rules.ParanoiaLevel, cfg.Rules.CustomPatterns)
+	return evaluateSelfTest(cfg, rules)
+}
+
+func evaluateSelfTest(cfg *Config, rules *RuleEngine) *SelfTestReport {
 	decoder := NewDecoder(cfg.Decoding)
 
 	scan := func(payload string) (blocked bool, score int, cat Category) {

@@ -20,6 +20,8 @@ services:
       - ../configs/config.yaml:/etc/nullgate/config.yaml:ro
       # Let's Encrypt certificate cache (persistent)
       - autocert-cache:/var/lib/nullgate/autocert
+      # Persistent, atomic dashboard-managed application registry
+      - application-registry:/app/data
       # Optional: persistent logs
       - ./logs:/var/log/nullgate
 
@@ -71,4 +73,6 @@ networks:
 
 volumes:
   autocert-cache:
+    driver: local
+  application-registry:
     driver: local

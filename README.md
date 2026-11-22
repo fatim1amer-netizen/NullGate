@@ -90,7 +90,7 @@ go run ./examples/vulnerable-backend
 
 ## 🎛 Control Panel / لوحة التحكم
 
-NullGate includes a **professional, self-contained live control panel** with session-based authentication that gives you real-time visibility and operational control over the WAF — KPIs, live traffic, attack categories, defense-layer breakdowns, security events, the effective posture, **plus live control**: block/unblock IPs, retune paranoia on the fly, view the blocklist, and scan your own site's protection. The dashboard is bilingual (English/Arabic + RTL), themeable (dark/light), and updates every 2 seconds. It runs on a separate localhost socket, isolated from the public attack surface.
+NullGate includes a self-contained, separately bound admin dashboard for WAF metrics and controls. Its **Protected Applications** section manages hostname routes, application-specific policies, rate limits, rule assignments, metrics, and attack events. App management and demo comparisons require an authenticated admin session, `admin.read_only: false`, and the localhost-only admin listener.
 
 ### Launch it / تشغيلها
 
@@ -105,7 +105,7 @@ make dashboard
 scripts\dashboard.cmd
 ```
 
-This builds NullGate + the demo backend, starts the WAF with `--admin` (admin socket enabled on `127.0.0.1:9091`), and opens the control panel in your browser.
+This builds NullGate + the loopback-only demo backend, starts the WAF with `--admin`, and opens the local control panel.
 
 Alternatively, enable it manually:
 
@@ -118,17 +118,48 @@ The `--admin` flag overrides `admin.enabled` in the config and **always** keeps 
 
 ### Secure Login / تسجيل الدخول الآمن
 
-When `admin.password_hash` is configured, the dashboard requires authentication. Set it in `configs/config.yaml`:
+Set an admin password hash and explicitly enable writable controls before managing apps. Keep the listener on loopback:
 
 ```yaml
 admin:
   enabled: true
+  listen_addr: "127.0.0.1:9091"
   username: "admin"
-  password_hash: "sha256:abc123..."  # Generate: echo -n "your-password" | sha256sum
+  password_hash: "sha256:<strong-password-hash>"
+  read_only: false
+  require_localhost: true
   session_ttl_min: 720  # 12 hours
 ```
 
-Session tokens are stored in-memory only (restart = re-auth) and use HttpOnly/SameSite cookies for CSRF protection.
+There is no default admin password. App registry APIs refuse unauthenticated access; mutations also refuse when the admin is read-only. Session tokens are in-memory and use HttpOnly/SameSite cookies.
+
+### Multi-application routing
+
+The central WAF routes a validated Host header only to a configured upstream; it never accepts an upstream from a client request. A missing registry file retains legacy `server.target_backend` behavior. Registering an app activates strict host routing; deleting all apps later leaves routing closed rather than reopening the legacy backend. Unknown hosts receive `421 Misdirected Request`.
+
+The admin app form can manage multiple applications. New backend authorities must be explicitly trusted in YAML; the existing `server.target_backend` authority is trusted automatically:
+
+```yaml
+applications:
+  registry_path: "data/apps.json"
+  allowed_upstream_hosts:
+    - "catalog.internal:8080"
+    - "booking.internal:8443"
+```
+
+The separate registry is written with restrictive permissions and an atomic replacement. Mount its directory persistently and writable by the NullGate service. TLS terminates at the central listener; each public app hostname must be covered by the configured certificate or included in `server.auto_tls_domains`.
+
+For the two built-in, synthetic applications, start NullGate with `--demo`:
+
+```bash
+./nullgate --config configs/config.yaml --admin --demo
+curl -H "Host: store.local" http://127.0.0.1:8080/
+curl -H "Host: booking.local" http://127.0.0.1:8080/
+```
+
+For interactive browser use, map `store.local` and `booking.local` to `127.0.0.1` in your local hosts file, then visit each hostname on port 8080. The Docker demo stack binds its WAF port to loopback only. The store and booking handlers run in-process and open no backend listener. Their deliberately weak synthetic behavior is only reachable through the protected WAF route; the unprotected comparison is an authenticated, localhost-only admin operation. Comparison responses and WAF decisions are captured from actual requests. They use synthetic records only.
+
+Custom rules are assigned globally or to one or more app IDs. The per-app evaluation endpoint runs each effective policy against NullGate's existing labeled self-test corpus and reports precision, recall, false-positive rate, and F1. These figures describe that built-in corpus, not production traffic or user-provided labels.
 
 ### What's inside / ما بالداخل
 
@@ -168,6 +199,13 @@ All served on the admin socket (`127.0.0.1:9091` by default):
 | `/api/login` | POST | Authenticate and receive session cookie |
 | `/api/logout` | POST | Destroy session |
 | `/api/overview` | GET | Combined snapshot: info + metrics + blocklist + events |
+| `/api/apps` | GET | Protected apps, app metrics/events, and rule assignments (password session required) |
+| `/api/apps/metrics?id=APP_ID` | GET | App-specific metrics and recent events |
+| `/api/apps/evaluation` | GET | Per-app metrics against the built-in labeled corpus |
+| `/api/admin/apps/upsert` | POST | Register, edit, or enable/disable an app (authenticated, writable admin only) |
+| `/api/admin/apps/delete` | POST | Safely remove an app and its rule assignments |
+| `/api/admin/apps/rules` | POST | Replace global and app-scoped custom rule assignments |
+| `/api/admin/apps/compare` | POST | Run an actual protected/unprotected comparison for built-in demos (localhost only) |
 | `/api/status` | GET | WAF status summary: version, uptime, blocklist, rules |
 | `/api/metrics` | GET | Full metrics snapshot (JSON) |
 | `/api/events` | GET | Recent security events (JSON) |
@@ -188,6 +226,9 @@ The dashboard calls `/api/overview` every refresh; the other endpoints are avail
 | Flag / العلم | Purpose / الغرض |
 |---|---|
 | `--config PATH` | Path to YAML config (default `configs/config.yaml`) |
+| `--app-registry PATH` | Override the persistent application registry path |
+| `--backend URL` | Override `server.target_backend` (also reads `NULLGATE_TARGET`) |
+| `--demo` | Register the in-process Online Store and Booking System demos |
 | `--admin` | Force-enable the live control panel on `127.0.0.1:9091` (loopback-only) |
 | `--auto-tls` | Enable automatic HTTPS via Let's Encrypt (requires `--domain`) |
 | `--domain LIST` | Comma-separated domains for auto-TLS (e.g. `example.com,www.example.com`) |
@@ -243,14 +284,15 @@ Run `./nullgate --show-config` to see exactly what your file resolves to.
 # Build the WAF image (multi-stage, scratch runtime, ~11 MB)
 make docker
 
-# Full demo stack: WAF + vulnerable backend, backend not exposed publicly
+# Local-only synthetic demo stack; no vulnerable backend listener is created
 docker compose up --build
-# WAF: http://localhost:8080 · admin: http://localhost:9091
+# WAF: http://127.0.0.1:8080 (Host-routed store.local and booking.local)
 ```
 
-The compose stack runs the container `read_only`, drops all capabilities, and
-never publishes the backend port — the demo backend is reachable **only** through
-the WAF.
+The compose stack binds its WAF port to loopback, runs the container read-only,
+and drops all capabilities. The demo backends are in-process synthetic
+handlers; the optional unprotected comparison is available only through the
+authenticated, localhost-only admin API.
 
 ---
 
@@ -332,8 +374,12 @@ NullGate/
 4. **`trusted_proxies`** must list only proxies you control. Empty means internet-facing: `X-Forwarded-For` is ignored entirely.
 
 5. The demo backend is **deliberately vulnerable** — never publish it directly.
+   The standalone example binds to loopback by default; container demos bind
+   only on their private compose network. The built-in synthetic demos are
+   in-process, and the public comparison API is localhost-only.
 
 6. **Live control:** Set `admin.read_only: false` to enable IP blocking and paranoia tuning from the dashboard.
+   App-management APIs additionally require a non-empty strong `admin.password_hash`.
 
 7. **Protection scanner:** The scan feature requires ownership verification (DNS TXT or meta tag) before testing a live target. Use engine mode for offline testing.
 

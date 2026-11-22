@@ -43,14 +43,14 @@ echo ""
 echo "Creating public URL..."
 echo ""
 echo "========================================"
-cloudflared tunnel --url http://localhost:9091 &
+cloudflared tunnel --url http://localhost:8080 &
 
 echo ""
 echo "YOUR PUBLIC URL WILL APPEAR ABOVE"
 echo "Look for: https://xxxxx.trycloudflare.com"
 echo ""
-echo "Share that URL with anyone!"
-echo "Login: admin / admin123"
+echo "The URL reaches only the protected WAF listener."
+echo "The admin dashboard and backend are not tunneled."
 echo ""
 echo "Press Ctrl+C to stop"
 

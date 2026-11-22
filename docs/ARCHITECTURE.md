@@ -17,7 +17,27 @@ pipeline is ordered the way it is. For usage, see the top-level `README.md`.
 
 ---
 
-## 2. Request pipeline / مسار الطلب
+## 2. Multi-application routing / توجيه التطبيقات
+
+`ApplicationManager` is the central listener's first application boundary. It
+normalizes and validates the incoming Host (and requires TLS SNI to agree when
+present), then looks up an immutable hostname snapshot. A configured hostname
+selects one app-owned `Engine`; the incoming request never selects an upstream.
+Unknown hosts receive `421` and disabled apps receive `404`. A missing registry
+file retains legacy `server.target_backend` mode for compatibility; once an
+application is registered, deleting all applications keeps routing closed
+rather than re-enabling the legacy backend.
+
+The app registry is a separate JSON file, not a rewrite of the deployment YAML.
+Writes validate every app, upstream authority, policy, and rule assignment,
+build the candidate routing snapshot, write a restrictive temporary file,
+flush and atomically replace the registry, then publish the new snapshot.
+Upstreams must match the configured allowlist (the legacy target authority is
+trusted automatically). App engines own their rule engine, rate limiter,
+blocklist, behavior state, metrics, and event logger; built-in rules are shared
+by configuration, while custom patterns are explicitly global or app-scoped.
+
+## 3. Request pipeline / مسار الطلب
 
 Every request passes through this ordered chain in `Engine.ServeHTTP`
 (`internal/waf/engine.go`). The first layer to object wins; the request is
@@ -32,7 +52,7 @@ denied and nothing downstream runs.
 ├──────────────────────────────────────────────────────────────────────┤
 │ 1. Protocol guard         — method, URL/header limits, smuggling,     │
 │                             null/control bytes, content-type          │
-│ 2. Blocklist              — shared store fed by honeypot + behavior   │
+│ 2. Blocklist              — app-local store fed by honeypot + behavior│
 │ 3. Honeypot               — /.env, /wp-login.php … instant block      │
 │ 4. Rate limiter           — token bucket → Allow / PoW / Block        │
 │ 5. Proof-of-Work          — HMAC-bound challenge under attack         │
@@ -51,7 +71,7 @@ denied and nothing downstream runs.
 
 ---
 
-## 3. The detection core / نواة الكشف
+## 4. The detection core / نواة الكشف
 
 Deep inspection (layer 7) is where most attacks die. It has two halves:
 
@@ -95,7 +115,7 @@ individually-weak signals still accumulates into a block.
 
 ---
 
-## 4. Anti-abuse subsystems / أنظمة مكافحة الإساءة
+## 5. Anti-abuse subsystems / أنظمة مكافحة الإساءة
 
 | Subsystem | File | Role |
 |-----------|------|------|
@@ -105,11 +125,11 @@ individually-weak signals still accumulates into a block.
 | Honeypot | `honeypot.go` | Known-probe paths; one hit → shared blocklist. |
 | Behavioral tracker | `behavior.go` | Path/method spread, consecutive blocks → scanner escalation. |
 | Tarpit | `honeypot.go` | Escalating latency that ties up an attacker's own connections. |
-| Blocklist | `blocklist.go` | Shared, TTL-expiring, IP+CIDR; never persisted (NAT-friendly). |
+| Blocklist | `blocklist.go` | App-local, TTL-expiring, IP+CIDR; never persisted (NAT-friendly). |
 
 ---
 
-## 5. Trust boundaries / حدود الثقة
+## 6. Trust boundaries / حدود الثقة
 
 - **Client IP** (`ip.go`) is the anchor of every per-client control. `X-Forwarded-For`
   is honored **only** when the direct peer is a configured trusted proxy, and the
@@ -119,14 +139,20 @@ individually-weak signals still accumulates into a block.
   (`sanitizeForwardHeaders`), so the backend can't be lied to about origin.
 - **Admin surface** runs on a **separate socket** (`admin.go`) — the operational
   interface never shares the public attack surface, and defaults to localhost-only.
+- **Application changes** require the authenticated admin session, an explicit
+  writable-admin setting, and a persistent registry path. Unprotected demo
+  comparison calls are localhost-only and execute the in-process synthetic
+  backend; no vulnerable demo listener is opened.
 
 ---
 
-## 6. Observability / المراقبة
+## 7. Observability / المراقبة
 
 - **Prometheus metrics** at `/metrics`: totals, blocks by layer, category counts,
   latency, proxy errors, tracked clients.
 - **Structured logs** (JSON or text) with per-block layer/reason/category.
+- **Per-application snapshots** for metrics and events; app IDs are attached
+  to request and security log records.
 - **Live dashboard** on the admin socket, auto-refreshing.
 - **Self-test** (`--selftest`) runs a 51-case labeled corpus and reports
   detection / false-positive rate — the competition correctness gate.

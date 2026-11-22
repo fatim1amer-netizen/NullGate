@@ -3,6 +3,7 @@ package waf
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -12,22 +13,23 @@ import (
 // Every subsystem reads its tuning parameters from here so that a
 // single YAML file controls the whole security posture.
 type Config struct {
-	Server    ServerConfig        `yaml:"server"`
-	Protocol  ProtocolConfig      `yaml:"protocol"`
-	Rules     RulesConfig         `yaml:"rules"`
-	Decoding  DecodingConfig      `yaml:"decoding"`
-	RateLimit RateLimitConfig     `yaml:"rate_limit"`
-	PoW       PoWConfig           `yaml:"pow"`
-	Bot       BotMitigationConfig `yaml:"bot"`
-	Behavior  BehaviorConfig      `yaml:"behavior"`
-	CSRF      CSRFConfig          `yaml:"csrf"`
-	Response  ResponseConfig      `yaml:"response"`
-	Honeypot  HoneypotConfig      `yaml:"honeypot"`
-	Tarpit    TarpitConfig        `yaml:"tarpit"`
-	Admin     AdminConfig         `yaml:"admin"`
-	Metrics   MetricsConfig       `yaml:"metrics"`
-	Logging   LoggingConfig       `yaml:"logging"`
-	IP        IPConfig            `yaml:"ip"`
+	Server       ServerConfig        `yaml:"server"`
+	Applications ApplicationsConfig  `yaml:"applications"`
+	Protocol     ProtocolConfig      `yaml:"protocol"`
+	Rules        RulesConfig         `yaml:"rules"`
+	Decoding     DecodingConfig      `yaml:"decoding"`
+	RateLimit    RateLimitConfig     `yaml:"rate_limit"`
+	PoW          PoWConfig           `yaml:"pow"`
+	Bot          BotMitigationConfig `yaml:"bot"`
+	Behavior     BehaviorConfig      `yaml:"behavior"`
+	CSRF         CSRFConfig          `yaml:"csrf"`
+	Response     ResponseConfig      `yaml:"response"`
+	Honeypot     HoneypotConfig      `yaml:"honeypot"`
+	Tarpit       TarpitConfig        `yaml:"tarpit"`
+	Admin        AdminConfig         `yaml:"admin"`
+	Metrics      MetricsConfig       `yaml:"metrics"`
+	Logging      LoggingConfig       `yaml:"logging"`
+	IP           IPConfig            `yaml:"ip"`
 }
 
 // DefaultConfig returns a fully populated, production-sane configuration.
@@ -47,6 +49,9 @@ func DefaultConfig() *Config {
 			IdleTimeout:       60,
 			MaxHeaderBytes:    1 << 20,
 			TrustedProxies:    []string{},
+		},
+		Applications: ApplicationsConfig{
+			RegistryPath: "data/apps.json",
 		},
 		Protocol: ProtocolConfig{
 			MaxURLLength:                8192,
@@ -196,7 +201,7 @@ type ServerConfig struct {
 	EnableTLS         bool     `yaml:"enable_tls"`
 	TLSCert           string   `yaml:"tls_cert"`
 	TLSKey            string   `yaml:"tls_key"`
-	AutoTLS           bool     `yaml:"auto_tls"`     // provision certs from Let's Encrypt
+	AutoTLS           bool     `yaml:"auto_tls"` // provision certs from Let's Encrypt
 	AutoTLSDomains    []string `yaml:"auto_tls_domains"`
 	AutoTLSCacheDir   string   `yaml:"auto_tls_cache_dir"` // where to persist issued certs
 	AutoTLSEmail      string   `yaml:"auto_tls_email"`     // ACME account contact
@@ -206,6 +211,13 @@ type ServerConfig struct {
 	IdleTimeout       int      `yaml:"idle_timeout_sec"`
 	MaxHeaderBytes    int      `yaml:"max_header_bytes"`
 	TrustedProxies    []string `yaml:"trusted_proxies"`
+}
+
+// ApplicationsConfig controls the trusted application registry and the
+// upstream host allowlist used when validating registered backends.
+type ApplicationsConfig struct {
+	RegistryPath         string   `yaml:"registry_path"`
+	AllowedUpstreamHosts []string `yaml:"allowed_upstream_hosts"`
 }
 
 type ProtocolConfig struct {
@@ -230,6 +242,7 @@ type RulesConfig struct {
 	AnomalyThreshold int               `yaml:"anomaly_threshold"`
 	BlockOnCritical  bool              `yaml:"block_on_critical"`
 	RuleActions      map[string]string `yaml:"rule_actions"`
+	CustomPatterns   []string          `yaml:"custom_patterns"`
 }
 
 type DecodingConfig struct {
@@ -361,6 +374,8 @@ func (c *Config) Print() {
 	fmt.Printf("server.listen_addr:          %s\n", c.Server.ListenAddr)
 	fmt.Printf("server.target_backend:       %s\n", c.Server.TargetBackend)
 	fmt.Printf("server.tls:                  %v\n", c.Server.EnableTLS)
+	fmt.Printf("applications.registry_path:  %s\n", c.Applications.RegistryPath)
+	fmt.Printf("applications.upstream_allow: %v\n", c.Applications.AllowedUpstreamHosts)
 	fmt.Printf("protocol.max_url_length:     %d\n", c.Protocol.MaxURLLength)
 	fmt.Printf("protocol.max_header_count:   %d\n", c.Protocol.MaxHeaderCount)
 	fmt.Printf("protocol.max_request_size:   %d bytes\n", c.Protocol.MaxRequestSize)
@@ -419,6 +434,14 @@ func ValidateConfig(cfg *Config) error {
 	}
 	if cfg.Server.TargetBackend == "" {
 		return fmt.Errorf("server.target_backend is required")
+	}
+	if cfg.Applications.RegistryPath == "" {
+		cfg.Applications.RegistryPath = "data/apps.json"
+	}
+	for _, pattern := range cfg.Rules.CustomPatterns {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("invalid rules.custom_patterns expression: %w", err)
+		}
 	}
 	if cfg.Server.EnableTLS {
 		if cfg.Server.TLSCert == "" || cfg.Server.TLSKey == "" {

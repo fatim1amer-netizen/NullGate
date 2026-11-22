@@ -147,6 +147,10 @@ func main() {
 			html.EscapeString(targetURL), html.EscapeString(string(body)))
 	})
 
-	fmt.Println("🚀 Vulnerable App running on http://127.0.0.1:3000")
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	addr := os.Getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:3000"
+	}
+	fmt.Println("🚀 Vulnerable App running on http://" + addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }

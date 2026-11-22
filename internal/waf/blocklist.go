@@ -111,16 +111,26 @@ func (b *Blocklist) Entries() map[string]time.Time {
 
 // Cleanup periodically removes expired entries. It must be started once.
 func (b *Blocklist) Cleanup(interval time.Duration) {
+	b.CleanupUntil(interval, nil)
+}
+
+// CleanupUntil runs expiry sweeping until the owner stops it.
+func (b *Blocklist) CleanupUntil(interval time.Duration, stop <-chan struct{}) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		b.mu.Lock()
-		for k, exp := range b.entries {
-			if now.After(exp) {
-				delete(b.entries, k)
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			b.mu.Lock()
+			for k, exp := range b.entries {
+				if now.After(exp) {
+					delete(b.entries, k)
+				}
 			}
+			b.mu.Unlock()
 		}
-		b.mu.Unlock()
 	}
 }

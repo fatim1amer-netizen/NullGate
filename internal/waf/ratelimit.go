@@ -24,6 +24,7 @@ const (
 // requests to second boundaries.
 type RateLimiter struct {
 	cfg     RateLimitConfig
+	stop    <-chan struct{}
 	mu      sync.Mutex
 	buckets map[string]*bucket
 }
@@ -37,8 +38,12 @@ type bucket struct {
 }
 
 // NewRateLimiter constructs a limiter and starts its cleanup loop.
-func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
-	rl := &RateLimiter{cfg: cfg, buckets: make(map[string]*bucket)}
+func NewRateLimiter(cfg RateLimitConfig, stopChannels ...<-chan struct{}) *RateLimiter {
+	var stop <-chan struct{}
+	if len(stopChannels) > 0 {
+		stop = stopChannels[0]
+	}
+	rl := &RateLimiter{cfg: cfg, stop: stop, buckets: make(map[string]*bucket)}
 	if cfg.Enabled {
 		interval := time.Duration(cfg.CleanupIntervalSec) * time.Second
 		if interval <= 0 {
@@ -131,15 +136,20 @@ func (rl *RateLimiter) TrackedClients() int {
 func (rl *RateLimiter) cleanup(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		rl.mu.Lock()
-		for ip, b := range rl.buckets {
-			// Drop clients idle for 5+ minutes that are not actively blocked.
-			if now.Sub(b.lastSeen) > 5*time.Minute && now.After(b.blockedTill) {
-				delete(rl.buckets, ip)
+	for {
+		select {
+		case <-rl.stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			rl.mu.Lock()
+			for ip, b := range rl.buckets {
+				// Drop clients idle for 5+ minutes that are not actively blocked.
+				if now.Sub(b.lastSeen) > 5*time.Minute && now.After(b.blockedTill) {
+					delete(rl.buckets, ip)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
