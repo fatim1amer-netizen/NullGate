@@ -198,6 +198,10 @@ func (m *ApplicationManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if app, routedRequest := m.localShowcaseRoute(snapshot, host, r); app != nil {
+		app.engine.ServeHTTP(w, routedRequest)
+		return
+	}
 	app, ok := snapshot.byHost[host]
 	if !ok {
 		http.Error(w, "Misdirected Request", http.StatusMisdirectedRequest)
@@ -208,6 +212,44 @@ func (m *ApplicationManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app.engine.ServeHTTP(w, r)
+}
+
+func (m *ApplicationManager) localShowcaseRoute(snapshot *applicationSnapshot, host string, r *http.Request) (*managedApplication, *http.Request) {
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return nil, nil
+	}
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	remoteIP := net.ParseIP(strings.Trim(remoteHost, "[]"))
+	if err != nil || remoteIP == nil || !remoteIP.IsLoopback() {
+		return nil, nil
+	}
+	var appID, prefix string
+	switch {
+	case r.URL.Path == "/original" || r.URL.Path == "/original/":
+		appID, prefix = "original-site", "/original"
+	case r.URL.Path == "/cyberlab" || r.URL.Path == "/cyberlab/":
+		appID, prefix = "cyber-attack-lab", "/cyberlab"
+	case strings.HasPrefix(r.URL.Path, "/original/"):
+		appID, prefix = "original-site", "/original"
+	case strings.HasPrefix(r.URL.Path, "/cyberlab/"):
+		appID, prefix = "cyber-attack-lab", "/cyberlab"
+	default:
+		return nil, nil
+	}
+	app, ok := snapshot.byID[appID]
+	if !ok || app.engine == nil || app.config.InternalKind == "" {
+		return nil, nil
+	}
+	routed := r.Clone(r.Context())
+	urlCopy := *r.URL
+	urlCopy.Path = strings.TrimPrefix(urlCopy.Path, prefix)
+	if urlCopy.Path == "" {
+		urlCopy.Path = "/"
+	}
+	urlCopy.RawPath = ""
+	routed.URL = &urlCopy
+	routed.Host = app.config.Hostname
+	return app, routed
 }
 
 func serveLocalHealthz(w http.ResponseWriter, r *http.Request) bool {

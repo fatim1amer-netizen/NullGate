@@ -1,9 +1,10 @@
 const $ = id => document.getElementById(id);
+const APP_BASE = location.pathname.startsWith('/cyberlab/') ? '/cyberlab' : '';
 function status(id, text, isError=false){const el=$(id);el.textContent=text;el.className='status '+(isError?'error':'ok')}
 async function request(path, options={}) {
   const headers={'Accept':'application/json',...(options.headers||{})};
   if(options.body){headers['Content-Type']='application/json';const csrf=document.cookie.split('; ').find(x=>x.startsWith('csrf_token='));if(csrf)headers['X-CSRF-Token']=decodeURIComponent(csrf.slice(11))}
-  const response=await fetch(path,{credentials:'same-origin',...options,headers});
+  const response=await fetch(APP_BASE+path,{credentials:'same-origin',...options,headers});
   const text=await response.text();let data;try{data=JSON.parse(text)}catch{data=text}
   return {response,data,text};
 }

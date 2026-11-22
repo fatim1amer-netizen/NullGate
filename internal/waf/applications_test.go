@@ -68,6 +68,47 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		t.Fatalf("unknown host returned %d, want 421", unknownRecorder.Code)
 	}
 
+	for _, test := range []struct {
+		path, contains string
+	}{
+		{"/original/", "NullGate"},
+		{"/cyberlab/", "Cybersecurity training"},
+		{"/cyberlab/assets/lab.js", "APP_BASE"},
+		{"/cyberlab/api/products?q=guide", "Secure Coding Field Guide"},
+	} {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+test.path, nil)
+		browserHeaders(request)
+		request.RemoteAddr = "127.0.0.1:41234"
+		if app, routed := manager.localShowcaseRoute(manager.snapshot.Load(), "127.0.0.1", request); app == nil {
+			t.Fatalf("local route helper rejected %s (host=%q remote=%q apps=%+v)", test.path, request.Host, request.RemoteAddr, manager.Applications())
+		} else if routed.URL.Path == test.path {
+			t.Fatalf("local route helper did not strip prefix for %s", test.path)
+		}
+		recorder := httptest.NewRecorder()
+		manager.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.contains) {
+			t.Fatalf("local path route %s returned %d and %q", test.path, recorder.Code, recorder.Body.String())
+		}
+	}
+	externalAlias := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/cyberlab/", nil)
+	browserHeaders(externalAlias)
+	externalAlias.RemoteAddr = "198.51.100.10:41234"
+	externalRecorder := httptest.NewRecorder()
+	manager.ServeHTTP(externalRecorder, externalAlias)
+	if externalRecorder.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("non-loopback client was allowed on local path alias: %d", externalRecorder.Code)
+	}
+	sniMismatch := httptest.NewRequest(http.MethodGet, "https://127.0.0.1/cyberlab/", nil)
+	sniMismatch.RemoteAddr = "127.0.0.1:41234"
+	sniMismatch.TLS = &tls.ConnectionState{ServerName: "untrusted.example.test"}
+	browserHeaders(sniMismatch)
+	sniMismatch.RemoteAddr = "127.0.0.1:41234"
+	sniRecorder := httptest.NewRecorder()
+	manager.ServeHTTP(sniRecorder, sniMismatch)
+	if sniRecorder.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("TLS SNI mismatch bypassed local route checks: %d", sniRecorder.Code)
+	}
+
 	result, err := manager.CompareDemo("cyber-attack-lab", http.MethodGet,
 		"/api/products?q=%27%20OR%20%271%27%3D%271", "", "")
 	if err != nil {

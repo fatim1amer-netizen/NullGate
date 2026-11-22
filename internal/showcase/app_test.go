@@ -46,7 +46,7 @@ func TestLabAssetsAreServedUnderSameOriginCSP(t *testing.T) {
 		if recorder.Code != http.StatusOK || recorder.Body.Len() == 0 {
 			t.Fatalf("%s returned %d and %q", path, recorder.Code, recorder.Body.String())
 		}
-		if path == "/" && (!strings.Contains(recorder.Body.String(), `href="/assets/lab.css"`) || !strings.Contains(recorder.Body.String(), `src="/assets/lab.js" defer`)) {
+		if path == "/" && (!strings.Contains(recorder.Body.String(), `href="assets/lab.css"`) || !strings.Contains(recorder.Body.String(), `src="assets/lab.js" defer`)) {
 			t.Fatal("lab page does not load external same-origin assets")
 		}
 	}

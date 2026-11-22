@@ -206,6 +206,10 @@ func main() {
 		}
 	}()
 	log.Printf("NullGate %s starting on %s", Version, cfg.Server.ListenAddr)
+	if *showcaseMode {
+		log.Printf("Showcase URLs: http://127.0.0.1:8080/original/ and http://127.0.0.1:8080/cyberlab/")
+		log.Printf("Hostname URLs (when .localhost resolves): http://nullgate.localhost:8080/ and http://cyberlab.localhost:8080/")
+	}
 
 	select {
 	case err := <-errCh:
