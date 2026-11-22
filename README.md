@@ -159,6 +159,18 @@ curl -H "Host: booking.local" http://127.0.0.1:8080/
 
 For interactive browser use, map `store.local` and `booking.local` to `127.0.0.1` in your local hosts file, then visit each hostname on port 8080. The Docker demo stack binds its WAF port to loopback only. The store and booking handlers run in-process and open no backend listener. Their deliberately weak synthetic behavior is only reachable through the protected WAF route; the unprotected comparison is an authenticated, localhost-only admin operation. Comparison responses and WAF decisions are captured from actual requests. They use synthetic records only.
 
+### Original website + real local cybersecurity lab
+
+The Windows one-command launcher is `START-SHOWCASE.cmd` (Go 1.25+ required). It runs one NullGate process on loopback only, protecting both `docs/index.html` and the separate SQLite-backed cybersecurity lab:
+
+```cmd
+START-SHOWCASE.cmd
+```
+
+Open `http://nullgate.localhost:8080/` for the original site and `http://cyberlab.localhost:8080/` for the lab. If your Windows setup does not resolve `.localhost` subdomains, add `127.0.0.1 nullgate.localhost cyberlab.localhost` to the hosts file at `%SystemRoot%\System32\drivers\etc\hosts`. The original `docs/index.html` is not modified; its embedded copy is checked byte-for-byte in tests. The lab has a persisted product catalog, registration/login with bcrypt password hashes, database-backed sessions, bookings, reviews, and activity history in `data/showcase.db`.
+
+The lab's injection examples send editable strings to actual WAF-protected routes; its database operations remain parameterized and it does not render submitted HTML. There is no separate exposed backend or public unprotected route. For observed protected/unprotected responses and WAF decision details, sign in at `http://127.0.0.1:9091/` and use **Protected Applications → Protected / unprotected demo comparison**, selecting **Cybersecurity Attack Lab**. On first launch the randomly generated dashboard password is printed once in the launcher console; only its local hash is stored in `data/showcase-admin.hash`. Keep this local-only mode off public networks.
+
 Custom rules are assigned globally or to one or more app IDs. The per-app evaluation endpoint runs each effective policy against NullGate's existing labeled self-test corpus and reports precision, recall, false-positive rate, and F1. These figures describe that built-in corpus, not production traffic or user-provided labels.
 
 ### What's inside / ما بالداخل

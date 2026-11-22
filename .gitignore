@@ -18,6 +18,13 @@ coverage.html
 logs/
 *.log
 /data/apps.json
+/data/showcase-apps.json
+/data/showcase-admin.hash
+/data/showcase-admin.hash.tmp
+/data/showcase.db
+/data/showcase.db-shm
+/data/showcase.db-wal
+/data/showcase.db-journal
 /data/.apps-*.tmp
 
 # Secrets & production config (NEVER commit!)

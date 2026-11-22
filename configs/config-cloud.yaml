@@ -33,6 +33,9 @@ applications:
   # Add exact upstream authorities here; server.target_backend is trusted by default.
   allowed_upstream_hosts: []
 
+showcase:
+  database_path: "data/showcase.db"
+
 protocol:
   max_url_length: 8192
   max_header_count: 60

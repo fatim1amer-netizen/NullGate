@@ -15,6 +15,7 @@ import (
 type Config struct {
 	Server       ServerConfig        `yaml:"server"`
 	Applications ApplicationsConfig  `yaml:"applications"`
+	Showcase     ShowcaseConfig      `yaml:"showcase"`
 	Protocol     ProtocolConfig      `yaml:"protocol"`
 	Rules        RulesConfig         `yaml:"rules"`
 	Decoding     DecodingConfig      `yaml:"decoding"`
@@ -52,6 +53,9 @@ func DefaultConfig() *Config {
 		},
 		Applications: ApplicationsConfig{
 			RegistryPath: "data/apps.json",
+		},
+		Showcase: ShowcaseConfig{
+			DatabasePath: "data/showcase.db",
 		},
 		Protocol: ProtocolConfig{
 			MaxURLLength:                8192,
@@ -218,6 +222,11 @@ type ServerConfig struct {
 type ApplicationsConfig struct {
 	RegistryPath         string   `yaml:"registry_path"`
 	AllowedUpstreamHosts []string `yaml:"allowed_upstream_hosts"`
+}
+
+// ShowcaseConfig controls the optional local graduation-project showcase apps.
+type ShowcaseConfig struct {
+	DatabasePath string `yaml:"database_path"`
 }
 
 type ProtocolConfig struct {

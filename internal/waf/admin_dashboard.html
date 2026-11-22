@@ -263,6 +263,7 @@ footer.foot{margin-top:26px;text-align:center;color:var(--faint);font-size:12px;
     <form class="app-form" id="appForm">
       <input id="appId" type="hidden">
       <input id="appDemoKind" type="hidden">
+      <input id="appInternalKind" type="hidden">
       <input id="appName" required maxlength="120" placeholder="Application name" aria-label="Application name">
       <input id="appHostname" required maxlength="253" placeholder="Hostname (shop.example.com)" aria-label="Hostname">
       <input id="appBackend" required placeholder="Backend URL (https://...)" aria-label="Backend URL">
@@ -307,10 +308,10 @@ footer.foot{margin-top:26px;text-align:center;color:var(--faint);font-size:12px;
       <div id="ruleRows" class="app-muted"></div>
     </div>
     <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
-      <h2 data-i18n="apps.compare">Protected / unprotected demo comparison</h2>
-      <p class="app-muted">Synthetic demo apps only. The unprotected request is executed in-process and only returned through this localhost admin interface.</p>
+      <h2 data-i18n="apps.compare">Protected / unprotected lab comparison</h2>
+      <p class="app-muted">Built-in isolated labs only. The unprotected request is executed in-process and only returned through this localhost admin interface.</p>
       <form class="app-compare" id="compareForm">
-        <select id="compareApp" required aria-label="Demo application"></select>
+        <select id="compareApp" required aria-label="Isolated lab application"></select>
         <select id="compareMethod" aria-label="HTTP method">
           <option>GET</option><option>POST</option><option>PUT</option>
         </select>
@@ -321,7 +322,7 @@ footer.foot{margin-top:26px;text-align:center;color:var(--faint);font-size:12px;
       </form>
       <div class="compare-result">
         <div><strong>Protected (actual WAF pipeline)</strong><pre id="compareProtected">Run a comparison to see the observed response.</pre></div>
-        <div><strong>Unprotected (isolated synthetic backend)</strong><pre id="compareUnprotected">No request has been run.</pre></div>
+        <div><strong>Unprotected (isolated in-process lab handler)</strong><pre id="compareUnprotected">No request has been run.</pre></div>
       </div>
       <pre id="compareDecision" class="app-muted">WAF decision and matched rules will appear here.</pre>
     </div>
@@ -436,7 +437,7 @@ const I18N = {
     "apps.enabled":"Enabled","apps.save":"Save application","apps.cancel":"Clear form","apps.name":"Application",
     "apps.host":"Hostname / Upstream","apps.state":"State","apps.traffic":"Traffic / Blocks","apps.actions":"Actions",
     "apps.loading":"Loading applications…","apps.rules":"Application-specific rule builder","apps.assign":"Save rule assignment",
-    "apps.compare":"Protected / unprotected demo comparison",
+    "apps.compare":"Protected / unprotected lab comparison",
     "layer.protocol":"Protocol","layer.decoding":"Decoder","layer.rules":"Rule Engine","layer.rate_limit":"Rate Limit",
     "layer.pow":"Proof-of-Work","layer.bot":"Bot Guard","layer.honeypot":"Honeypot","layer.behavior":"Behavior",
     "layer.csrf":"CSRF","layer.tarpit":"Tarpit","layer.response":"Hardening","layer.disabled":"disabled"
@@ -464,7 +465,7 @@ const I18N = {
     "apps.enabled":"مُفعّل","apps.save":"حفظ التطبيق","apps.cancel":"مسح النموذج","apps.name":"التطبيق",
     "apps.host":"اسم المضيف / الخادم","apps.state":"الحالة","apps.traffic":"الحركة / الحظر","apps.actions":"الإجراءات",
     "apps.loading":"جارٍ تحميل التطبيقات…","apps.rules":"منشئ القواعد الخاصة بالتطبيقات","apps.assign":"حفظ إسناد القاعدة",
-    "apps.compare":"مقارنة محمية / غير محمية للتطبيقات التجريبية",
+    "apps.compare":"مقارنة محمية / غير محمية للتطبيقات المعزولة",
     "layer.protocol":"البروتوكول","layer.decoding":"فك التشفير","layer.rules":"محرك القواعد","layer.rate_limit":"تحديد المعدل",
     "layer.pow":"إثبات العمل","layer.bot":"حارس الروبوتات","layer.honeypot":"مصيدة","layer.behavior":"السلوك",
     "layer.csrf":"CSRF","layer.tarpit":"المصيدة الزمنية","layer.response":"التحصين","layer.disabled":"معطّل"
@@ -672,13 +673,18 @@ function renderApps(){
   }).join("");
   const compareSelect=document.getElementById("compareApp");
   const previous=compareSelect.value;
-  const demos=apps.filter(view=>view.application&&view.application.demo_kind);
+   const demos=apps.filter(view=>view.application&&(view.application.demo_kind||view.application.internal_kind==="cyber-attack-lab"));
   compareSelect.innerHTML=demos.map(view=>{
     const app=view.application;
     return `<option value="${esc(app.id)}">${esc(app.name)} (${esc(app.hostname)})</option>`;
   }).join("");
   if(demos.some(view=>view.application.id===previous)) compareSelect.value=previous;
-  if(!demos.length) compareSelect.innerHTML='<option value="">Register a built-in demo to compare</option>';
+  if(!demos.length) compareSelect.innerHTML='<option value="">No isolated lab application is available</option>';
+  const selectedComparison=demos.find(view=>view.application.id===compareSelect.value);
+  const compareTarget=document.getElementById("compareTarget");
+  if(selectedComparison&&selectedComparison.application.internal_kind==="cyber-attack-lab"&&compareTarget.value==="/search?q=books"){
+    compareTarget.value="/api/products?q=guide";
+  }
   const ruleRows=document.getElementById("ruleRows");
   ruleRows.innerHTML=(appState.rules||[]).length?(appState.rules||[]).map(rule=>{
     const scope=rule.global?"Global":(rule.application_ids||[]).join(", ");
@@ -694,6 +700,8 @@ function clearAppForm(){
   document.getElementById("appForm").reset();
   document.getElementById("appId").value="";
   document.getElementById("appDemoKind").value="";
+  document.getElementById("appInternalKind").value="";
+  document.getElementById("appBackend").disabled=false;
   document.getElementById("appEnabled").checked=true;
   document.getElementById("appProfile").value="balanced";
   document.getElementById("appParanoia").value="";
@@ -713,6 +721,8 @@ document.getElementById("appForm").addEventListener("submit",async event=>{
     enabled:document.getElementById("appEnabled").checked,policy:{profile:document.getElementById("appProfile").value}};
   const demoKind=document.getElementById("appDemoKind").value;
   if(demoKind) app.demo_kind=demoKind;
+  const internalKind=document.getElementById("appInternalKind").value;
+  if(internalKind) app.internal_kind=internalKind;
   const rateLimit=document.getElementById("appRateLimit").value;
   if(rateLimit!=="") app.policy.rate_limit_enabled=rateLimit==="true";
   if(paranoia>0) app.policy.paranoia_level=paranoia;
@@ -733,9 +743,11 @@ document.getElementById("appRows").addEventListener("click",async event=>{
   if(button.dataset.appAction==="edit"){
     document.getElementById("appId").value=app.id;
     document.getElementById("appDemoKind").value=app.demo_kind||"";
+    document.getElementById("appInternalKind").value=app.internal_kind||"";
     document.getElementById("appName").value=app.name;
     document.getElementById("appHostname").value=app.hostname;
     document.getElementById("appBackend").value=app.backend_url;
+    document.getElementById("appBackend").disabled=!!app.internal_kind;
     document.getElementById("appEnabled").checked=app.enabled;
     document.getElementById("appProfile").value=app.policy.profile||"balanced";
     document.getElementById("appParanoia").value=app.policy.paranoia_level||"";
@@ -792,6 +804,12 @@ document.getElementById("evaluateApps").onclick=async()=>{
     ).join(" | ");
   }catch(error){output.textContent="Evaluation failed: "+error.message;}
 };
+document.getElementById("compareApp").addEventListener("change",()=>{
+  const app=(appState.applications||[]).map(view=>view.application).find(item=>item&&item.id===document.getElementById("compareApp").value);
+  const target=document.getElementById("compareTarget");
+  if(app&&app.internal_kind==="cyber-attack-lab") target.value="/api/products?q=guide";
+  else if(app&&app.demo_kind&&target.value.startsWith("/api/products")) target.value="/search?q=books";
+});
 document.getElementById("compareForm").addEventListener("submit",async event=>{
   event.preventDefault();
   const protectedOut=document.getElementById("compareProtected");

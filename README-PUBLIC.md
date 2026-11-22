@@ -29,6 +29,16 @@ chmod +x deploy-public.sh
 https://random-name-1234.trycloudflare.com
 ```
 
+### تشغيل موقع المشروع الأصلي ومختبر الأمن محلياً فقط
+
+لعرض المشروع والصفحة الأصلية مع مختبر تفاعلي وقاعدة SQLite، استخدم `START-SHOWCASE.cmd` من مجلد المشروع. يتطلب Go 1.25 أو أحدث، ولا يشغّل Cloudflare Tunnel أو أي backend مكشوف:
+
+```cmd
+START-SHOWCASE.cmd
+```
+
+افتح `http://nullgate.localhost:8080/` للموقع الأصلي و`http://cyberlab.localhost:8080/` للمختبر. إذا لم يعمل النطاق المحلي في Windows، أضف السطر `127.0.0.1 nullgate.localhost cyberlab.localhost` إلى ملف hosts. بيانات الحسابات والحجوزات محفوظة محلياً في `data/showcase.db`. كلمة مرور لوحة الإدارة المحلية تظهر مرة واحدة في نافذة التشغيل عند الإعداد الأول. هذا الوضع مخصص للعرض على الجهاز نفسه؛ لا تربطه بنفق عام.
+
 ### الطريقة 2: Docker Compose (الأفضل للإنتاج)
 
 ```bash

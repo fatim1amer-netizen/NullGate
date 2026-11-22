@@ -28,6 +28,9 @@ applications:
   # The configured server.target_backend authority is trusted automatically.
   allowed_upstream_hosts: []
 
+showcase:
+  database_path: "data/showcase.db"
+
 # ------------------------------ Protocol hygiene ---------------------------
 protocol:
   max_url_length: 8192

@@ -11,7 +11,87 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"nullgate/internal/showcase"
 )
+
+func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
+	legacy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "legacy fallback must not be used", http.StatusInternalServerError)
+	}))
+	defer legacy.Close()
+	database, err := showcase.Open(filepath.Join(t.TempDir(), "showcase.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	cfg := appManagerConfig(t, legacy.URL)
+	internal := map[string]http.Handler{
+		"original-site":    showcase.OriginalHandler(),
+		"cyber-attack-lab": database.Handler(),
+	}
+	manager, err := NewApplicationManager(cfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "legacy fallback must not be used", http.StatusInternalServerError)
+	}), internal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.InstallShowcaseApplications(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		id, host, path, contains string
+	}{
+		{"original-site", "nullgate.localhost", "/", "NullGate"},
+		{"cyber-attack-lab", "cyberlab.localhost", "/", "Cybersecurity training"},
+	} {
+		request := httptest.NewRequest(http.MethodGet, "http://"+test.host+test.path, nil)
+		request.Host = test.host
+		browserHeaders(request)
+		recorder := httptest.NewRecorder()
+		manager.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.contains) {
+			t.Fatalf("%s route returned %d and %q", test.id, recorder.Code, recorder.Body.String())
+		}
+		metrics, ok := manager.ApplicationMetrics(test.id)
+		if !ok || metrics.Metrics.Total != 1 {
+			t.Fatalf("%s metrics are not isolated/recorded: %+v", test.id, metrics)
+		}
+	}
+	unknown := httptest.NewRequest(http.MethodGet, "http://unknown.localhost/", nil)
+	unknown.Host = "unknown.localhost"
+	browserHeaders(unknown)
+	unknownRecorder := httptest.NewRecorder()
+	manager.ServeHTTP(unknownRecorder, unknown)
+	if unknownRecorder.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("unknown host returned %d, want 421", unknownRecorder.Code)
+	}
+
+	result, err := manager.CompareDemo("cyber-attack-lab", http.MethodGet,
+		"/api/products?q=%27%20OR%20%271%27%3D%271", "", "")
+	if err != nil {
+		t.Fatalf("compare real lab route: %v", err)
+	}
+	if !result.Decision.Blocked || result.Protected.StatusCode != http.StatusForbidden {
+		t.Fatalf("WAF did not block the SQL injection test string: %+v", result)
+	}
+	if result.Unprotected.StatusCode != http.StatusOK || !strings.Contains(result.Unprotected.Body, "[]") {
+		t.Fatalf("actual safe database handler did not run unprotected: %+v", result.Unprotected)
+	}
+
+	manager.Close()
+	reloaded, err := NewApplicationManager(cfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "legacy fallback must not be used", http.StatusInternalServerError)
+	}), internal)
+	if err != nil {
+		t.Fatalf("reload persisted showcase registry: %v", err)
+	}
+	defer reloaded.Close()
+	if len(reloaded.Applications()) != 2 {
+		t.Fatalf("showcase apps did not persist across manager restart: %+v", reloaded.Applications())
+	}
+}
 
 func TestApplicationManagerRoutesAndRejectsUnknownHosts(t *testing.T) {
 	backendA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

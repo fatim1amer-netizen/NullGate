@@ -87,6 +87,36 @@ func (m *ApplicationManager) InstallDemoApplications() error {
 	return nil
 }
 
+// InstallShowcaseApplications adds the original GitHub Pages site and the
+// database-backed attack lab without replacing existing operator settings.
+func (m *ApplicationManager) InstallShowcaseApplications() error {
+	existing := make(map[string]bool)
+	for _, app := range m.Applications() {
+		existing[app.ID] = true
+	}
+	applications := []ProtectedApplication{
+		{
+			ID: "original-site", Name: "NullGate Original Website", Hostname: "nullgate.localhost",
+			BackendURL: "internal://showcase/original", InternalKind: "original-site", Enabled: true,
+			Policy: ApplicationPolicy{Profile: "balanced"},
+		},
+		{
+			ID: "cyber-attack-lab", Name: "Cybersecurity Attack Lab", Hostname: "cyberlab.localhost",
+			BackendURL: "internal://showcase/cyber-attack-lab", InternalKind: "cyber-attack-lab", Enabled: true,
+			Policy: ApplicationPolicy{Profile: "balanced"},
+		},
+	}
+	for _, app := range applications {
+		if existing[app.ID] {
+			continue
+		}
+		if err := m.UpsertApplication(app); err != nil {
+			return fmt.Errorf("install %s: %w", app.ID, err)
+		}
+	}
+	return nil
+}
+
 func serveOnlineStoreDemo(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/":
@@ -247,8 +277,8 @@ type DemoComparison struct {
 }
 
 // CompareDemo executes the same bounded request through the registered WAF
-// engine and directly against its synthetic backend, returning observed
-// responses rather than predicted or fabricated outcomes.
+// engine and directly against an isolated in-process lab handler, returning
+// observed responses rather than predicted or fabricated outcomes.
 func (m *ApplicationManager) CompareDemo(id, method, requestTarget, body, contentType string) (DemoComparison, error) {
 	if len(body) > 16<<10 || len(requestTarget) > 8192 {
 		return DemoComparison{}, fmt.Errorf("comparison request exceeds its size limit")
@@ -268,8 +298,12 @@ func (m *ApplicationManager) CompareDemo(id, method, requestTarget, body, conten
 	if !ok || app.engine == nil {
 		return DemoComparison{}, fmt.Errorf("application not found or disabled")
 	}
-	if app.demo == nil {
-		return DemoComparison{}, fmt.Errorf("unprotected comparisons are available only for built-in synthetic demos")
+	unprotectedBackend := app.demo
+	if unprotectedBackend == nil && app.config.InternalKind != "" {
+		unprotectedBackend = m.internal[app.config.InternalKind]
+	}
+	if !app.comparable || unprotectedBackend == nil {
+		return DemoComparison{}, fmt.Errorf("unprotected comparisons are available only for isolated lab applications")
 	}
 	makeRequest := func() *http.Request {
 		req := httptest.NewRequest(method, requestTarget, bytes.NewBufferString(body))
@@ -297,7 +331,7 @@ func (m *ApplicationManager) CompareDemo(id, method, requestTarget, body, conten
 
 	unprotectedRequest := makeRequest()
 	unprotectedRecorder := httptest.NewRecorder()
-	app.demo.ServeHTTP(unprotectedRecorder, unprotectedRequest)
+	unprotectedBackend.ServeHTTP(unprotectedRecorder, unprotectedRequest)
 
 	return DemoComparison{
 		ApplicationID: id,

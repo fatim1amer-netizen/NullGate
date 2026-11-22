@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NullGate WAF — Enterprise-Grade Web Application Firewall</title>
+<style>
+:root {
+  --font: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --bg: #0a0e14; --panel: rgba(22,29,42,.85); --border: rgba(255,255,255,.08);
+  --fg: #e6edf6; --muted: #8b98ad; --accent: #4f8cff; --accent-2: #8b5cf6;
+  --glow: radial-gradient(1200px 600px at 50% -10%, rgba(79,140,255,.15), transparent 60%),
+          radial-gradient(900px 500px at 100% 0%, rgba(139,92,246,.12), transparent 55%);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font); background: var(--bg); color: var(--fg);
+  background-image: var(--glow); background-attachment: fixed;
+  -webkit-font-smoothing: antialiased; line-height: 1.6;
+}
+nav {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 5%; border-bottom: 1px solid var(--border);
+  background: rgba(10,14,20,.88); backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 600; }
+.logo-icon {
+  width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff;
+  font-size: 20px; box-shadow: 0 8px 24px -8px var(--accent);
+}
+.nav-links { display: flex; gap: 30px; align-items: center; }
+.nav-links a {
+  color: var(--muted); text-decoration: none; font-size: 15px; transition: color .2s;
+}
+.nav-links a:hover { color: var(--fg); }
+.btn {
+  padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  text-decoration: none; transition: all .2s; border: 0; cursor: pointer;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff;
+  box-shadow: 0 4px 14px -4px var(--accent);
+}
+.btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.hero {
+  text-align: center; padding: 100px 5% 80px; max-width: 900px; margin: 0 auto;
+}
+.hero h1 {
+  font-size: 52px; font-weight: 700; margin-bottom: 20px; line-height: 1.2;
+  background: linear-gradient(135deg, #fff 40%, var(--accent) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero p {
+  font-size: 20px; color: var(--muted); margin-bottom: 40px; max-width: 700px;
+  margin-left: auto; margin-right: auto;
+}
+.hero-cta { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 24px; padding: 60px 5%; max-width: 1200px; margin: 0 auto;
+}
+.stat {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; text-align: center; backdrop-filter: blur(8px);
+}
+.stat-value {
+  font-size: 36px; font-weight: 700; color: var(--accent); margin-bottom: 8px;
+}
+.stat-label { font-size: 14px; color: var(--muted); }
+
+.features {
+  padding: 80px 5%; max-width: 1200px; margin: 0 auto;
+}
+.features h2 {
+  text-align: center; font-size: 38px; margin-bottom: 60px;
+  background: linear-gradient(135deg, #fff 40%, var(--accent) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; display: inline-block; width: 100%;
+}
+.feature-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px;
+}
+.feature {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 28px; backdrop-filter: blur(8px); transition: transform .2s, border-color .2s;
+}
+.feature:hover { transform: translateY(-4px); border-color: var(--accent); }
+.feature-icon {
+  font-size: 32px; margin-bottom: 16px; display: inline-block;
+}
+.feature h3 { font-size: 18px; margin-bottom: 12px; }
+.feature p { color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+.cta-section {
+  text-align: center; padding: 80px 5%; background: var(--panel);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.cta-section h2 { font-size: 36px; margin-bottom: 20px; }
+.cta-section p { font-size: 18px; color: var(--muted); margin-bottom: 30px; }
+
+footer {
+  text-align: center; padding: 40px 5%; color: var(--muted); font-size: 14px;
+  border-top: 1px solid var(--border);
+}
+footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">
+    <div class="logo-icon">🛡</div>
+    <span>NullGate</span>
+  </div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="https://github.com/fat1322im-hub/NullGate" target="_blank">GitHub</a>
+    <a href="https://github.com/fat1322im-hub/NullGate#readme">Documentation</a>
+    <a href="https://github.com/fat1322im-hub/NullGate#-control-panel--لوحة-التحكم">Admin Login</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <h1>Enterprise-Grade Web Application Firewall</h1>
+  <p>Protect your applications from SQL injection, XSS, RCE, and 10+ attack vectors with NullGate's fail-closed, multi-layer defense system.</p>
+  <div class="hero-cta">
+    <a href="#features" class="btn btn-primary">Explore Features</a>
+    <a href="https://github.com/fat1322im-hub/NullGate#-cloud-deployment--النشر-السحابي" class="btn btn-ghost">Deploy Guide</a>
+  </div>
+</section>
+
+<section class="stats">
+  <div class="stat">
+    <div class="stat-value">64</div>
+    <div class="stat-label">Detection Rules</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">12</div>
+    <div class="stat-label">Attack Classes</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">10+</div>
+    <div class="stat-label">Defense Layers</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">100%</div>
+    <div class="stat-label">Detection Rate</div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <h2>Why NullGate?</h2>
+  <div class="feature-grid">
+    <div class="feature">
+      <div class="feature-icon">🔒</div>
+      <h3>Fail-Closed Architecture</h3>
+      <p>Any error denies the request, never forwards. No information leaks, no silent bypasses.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🧠</div>
+      <h3>Multi-Layer Decoder</h3>
+      <p>Detects obfuscated payloads: URL encoding, base64, hex, unicode, SQL comments, 5-layer deep.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⚡</div>
+      <h3>Real-Time Control</h3>
+      <p>Block IPs, retune paranoia, view the blocklist — all live from the admin dashboard.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔍</div>
+      <h3>Protection Scanner</h3>
+      <p>Test your own site's defenses with our attack corpus. Ownership verification required.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔒</div>
+      <h3>Automatic HTTPS</h3>
+      <p>Let's Encrypt integration. One command, your cert is provisioned and auto-renewed.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📊</div>
+      <h3>Live Metrics</h3>
+      <p>KPIs, attack categories, defense layers, security events — all in a bilingual dashboard.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🐝</div>
+      <h3>Honeypot Traps</h3>
+      <p>/.env, /wp-login.php, /.git/config — one probe = instant block for 1 hour.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🤖</div>
+      <h3>Bot Mitigation</h3>
+      <p>Blocks sqlmap, nikto, curl, empty User-Agents, and scripted fingerprints.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⏱</div>
+      <h3>Rate Limiting + PoW</h3>
+      <p>Token-bucket with graduated response: Allow → Challenge → Block.</p>
+    </div>
+  </div>
+</section>
+
+<section class="cta-section">
+  <h2>Ready to Protect Your Application?</h2>
+  <p>Deploy NullGate in 5 minutes with automatic HTTPS. Open source, self-hosted, and free forever.</p>
+  <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 20px;">
+    <a href="https://github.com/fat1322im-hub/NullGate" class="btn btn-primary" target="_blank">View on GitHub</a>
+    <a href="/admin/login" class="btn btn-ghost">Access Dashboard</a>
+  </div>
+</section>
+
+<footer>
+  <p>NullGate WAF v2.0.0 · Open Source · Made with 🛡 for the security community</p>
+  <p><a href="https://github.com/fat1322im-hub/NullGate">GitHub</a> · <a href="/docs">Docs</a> · <a href="mailto:admin@nullgate.ai">Contact</a></p>
+</footer>
+
+</body>
+</html>

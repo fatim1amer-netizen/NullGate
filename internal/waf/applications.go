@@ -38,13 +38,14 @@ type ApplicationPolicy struct {
 // ProtectedApplication is a trusted host-to-upstream mapping. The upstream is
 // never taken from an incoming request.
 type ProtectedApplication struct {
-	ID         string            `json:"id"`
-	Name       string            `json:"name"`
-	Hostname   string            `json:"hostname"`
-	BackendURL string            `json:"backend_url"`
-	DemoKind   string            `json:"demo_kind,omitempty"`
-	Enabled    bool              `json:"enabled"`
-	Policy     ApplicationPolicy `json:"policy"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Hostname     string            `json:"hostname"`
+	BackendURL   string            `json:"backend_url"`
+	DemoKind     string            `json:"demo_kind,omitempty"`
+	InternalKind string            `json:"internal_kind,omitempty"`
+	Enabled      bool              `json:"enabled"`
+	Policy       ApplicationPolicy `json:"policy"`
 }
 
 // ApplicationRule can be shared globally or assigned to a specific set of
@@ -65,10 +66,11 @@ type ApplicationRegistry struct {
 }
 
 type managedApplication struct {
-	config ProtectedApplication
-	engine *Engine
-	demo   http.Handler
-	hash   string
+	config     ProtectedApplication
+	engine     *Engine
+	demo       http.Handler
+	comparable bool
+	hash       string
 }
 
 type applicationSnapshot struct {
@@ -84,6 +86,7 @@ type ApplicationManager struct {
 	legacy   http.Handler
 	path     string
 	allowed  map[string]struct{}
+	internal map[string]http.Handler
 	mu       sync.Mutex
 	registry ApplicationRegistry
 	snapshot atomic.Pointer[applicationSnapshot]
@@ -92,7 +95,7 @@ type ApplicationManager struct {
 // NewApplicationManager loads the registry and builds all enabled app engines.
 // A missing registry file is an empty registry, which keeps the legacy
 // single-backend configuration active until apps are explicitly registered.
-func NewApplicationManager(cfg *Config, legacy http.Handler) (*ApplicationManager, error) {
+func NewApplicationManager(cfg *Config, legacy http.Handler, internalBackends ...map[string]http.Handler) (*ApplicationManager, error) {
 	if cfg == nil || legacy == nil {
 		return nil, fmt.Errorf("application manager requires config and legacy handler")
 	}
@@ -101,10 +104,18 @@ func NewApplicationManager(cfg *Config, legacy http.Handler) (*ApplicationManage
 		path = "data/apps.json"
 	}
 	m := &ApplicationManager{
-		cfg:     cfg,
-		legacy:  legacy,
-		path:    path,
-		allowed: make(map[string]struct{}),
+		cfg:      cfg,
+		legacy:   legacy,
+		path:     path,
+		allowed:  make(map[string]struct{}),
+		internal: make(map[string]http.Handler),
+	}
+	if len(internalBackends) > 0 {
+		for kind, handler := range internalBackends[0] {
+			if handler != nil {
+				m.internal[kind] = handler
+			}
+		}
 	}
 	if authority := normalizeUpstreamAuthority(cfg.Server.TargetBackend); authority != "" {
 		m.allowed[authority] = struct{}{}
@@ -418,11 +429,7 @@ func (m *ApplicationManager) buildSnapshot(registry ApplicationRegistry) (*appli
 		if strings.TrimSpace(app.Name) == "" || len(app.Name) > 120 {
 			return nil, fmt.Errorf("application %q must have a name no longer than 120 characters", app.ID)
 		}
-		if app.DemoKind != "" {
-			if (app.DemoKind != "online-store" && app.DemoKind != "booking-system") || app.BackendURL != "internal://demo/"+app.DemoKind {
-				return nil, fmt.Errorf("application %q has an invalid internal demo backend", app.ID)
-			}
-		} else if err := m.validateUpstream(app.BackendURL); err != nil {
+		if err := m.validateApplicationBackend(app); err != nil {
 			return nil, fmt.Errorf("application %q backend: %w", app.ID, err)
 		}
 		if err := validateApplicationPolicy(app.Policy); err != nil {
@@ -482,14 +489,7 @@ func (m *ApplicationManager) buildSnapshot(registry ApplicationRegistry) (*appli
 		if _, exists := result.byID[app.ID]; exists {
 			return nil, fmt.Errorf("application ID %q is assigned more than once", app.ID)
 		}
-		if app.DemoKind != "" {
-			if app.DemoKind != "online-store" && app.DemoKind != "booking-system" {
-				return nil, fmt.Errorf("application %q has an unsupported demo kind", app.ID)
-			}
-			if app.BackendURL != "internal://demo/"+app.DemoKind {
-				return nil, fmt.Errorf("application %q has an invalid internal demo backend", app.ID)
-			}
-		} else if err := m.validateUpstream(app.BackendURL); err != nil {
+		if err := m.validateApplicationBackend(app); err != nil {
 			return nil, fmt.Errorf("application %q backend: %w", app.ID, err)
 		}
 		if err := validateApplicationPolicy(app.Policy); err != nil {
@@ -518,10 +518,11 @@ func (m *ApplicationManager) buildSnapshot(registry ApplicationRegistry) (*appli
 			ApplicationID string
 			BackendURL    string
 			DemoKind      string
+			InternalKind  string
 			Policy        ApplicationPolicy
 			Patterns      []string
 			Config        *Config
-		}{app.ID, app.BackendURL, app.DemoKind, app.Policy, patterns, appCfg})
+		}{app.ID, app.BackendURL, app.DemoKind, app.InternalKind, app.Policy, patterns, appCfg})
 		if err != nil {
 			return nil, fmt.Errorf("fingerprint configuration for application %q: %w", app.ID, err)
 		}
@@ -529,17 +530,21 @@ func (m *ApplicationManager) buildSnapshot(registry ApplicationRegistry) (*appli
 		signature := hex.EncodeToString(hash[:])
 		if previous != nil {
 			if old, ok := previous.byID[app.ID]; ok && old.engine != nil && old.hash == signature {
-				entry := &managedApplication{config: app, engine: old.engine, demo: old.demo, hash: signature}
+				entry := &managedApplication{config: app, engine: old.engine, demo: old.demo, comparable: old.comparable, hash: signature}
 				result.byHost[host] = entry
 				result.byID[app.ID] = entry
 				continue
 			}
 		}
 		var demo http.Handler
+		var internal http.Handler
 		var engine *Engine
 		if app.DemoKind != "" {
 			demo = NewDemoBackend(app.DemoKind)
 			engine, err = NewEngineWithBackend(appCfg, demo)
+		} else if app.InternalKind != "" {
+			internal = m.internal[app.InternalKind]
+			engine, err = NewEngineWithBackend(appCfg, internal)
 		} else {
 			engine, err = NewEngine(appCfg)
 		}
@@ -547,7 +552,11 @@ func (m *ApplicationManager) buildSnapshot(registry ApplicationRegistry) (*appli
 			return nil, fmt.Errorf("create engine for application %q: %w", app.ID, err)
 		}
 		engine.applicationID = app.ID
-		entry := &managedApplication{config: app, engine: engine, demo: demo, hash: signature}
+		entry := &managedApplication{
+			config: app, engine: engine, demo: demo,
+			comparable: app.DemoKind != "" || app.InternalKind == "cyber-attack-lab",
+			hash:       signature,
+		}
 		result.byHost[host] = entry
 		result.byID[app.ID] = entry
 	}
@@ -587,6 +596,32 @@ func (m *ApplicationManager) validateUpstream(raw string) error {
 		return fmt.Errorf("upstream authority %q is not in applications.allowed_upstream_hosts", authority)
 	}
 	return nil
+}
+
+func (m *ApplicationManager) validateApplicationBackend(app ProtectedApplication) error {
+	if app.DemoKind != "" && app.InternalKind != "" {
+		return fmt.Errorf("demo_kind and internal_kind cannot both be set")
+	}
+	if app.DemoKind != "" {
+		if (app.DemoKind != "online-store" && app.DemoKind != "booking-system") || app.BackendURL != "internal://demo/"+app.DemoKind {
+			return fmt.Errorf("invalid internal demo backend")
+		}
+		return nil
+	}
+	if app.InternalKind != "" {
+		expected := map[string]string{
+			"original-site":    "internal://showcase/original",
+			"cyber-attack-lab": "internal://showcase/cyber-attack-lab",
+		}
+		if app.BackendURL != expected[app.InternalKind] {
+			return fmt.Errorf("invalid internal showcase backend")
+		}
+		if m.internal[app.InternalKind] == nil {
+			return fmt.Errorf("internal application %q requires the --showcase runtime", app.InternalKind)
+		}
+		return nil
+	}
+	return m.validateUpstream(app.BackendURL)
 }
 
 func validateApplicationPolicy(policy ApplicationPolicy) error {
