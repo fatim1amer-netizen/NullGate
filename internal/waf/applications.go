@@ -268,9 +268,43 @@ func (m *ApplicationManager) localShowcaseRoute(snapshot *applicationSnapshot, h
 	}
 	urlCopy.RawPath = ""
 	routed.URL = &urlCopy
+	rewriteLocalShowcaseOrigin(routed, r.Host, app.config.Hostname)
 	routed.Host = app.config.Hostname
 	rewriteLocalShowcaseReferer(routed, prefix, app.config.Hostname)
 	return app, routed
+}
+
+func rewriteLocalShowcaseOrigin(r *http.Request, requestHost, appHostname string) {
+	origin, err := url.Parse(r.Header.Get("Origin"))
+	if err != nil || origin.User != nil ||
+		(origin.Scheme != "http" && origin.Scheme != "https") ||
+		(origin.Path != "" && origin.Path != "/") || origin.RawQuery != "" || origin.Fragment != "" {
+		return
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if !strings.EqualFold(origin.Scheme, scheme) ||
+		normalizedAuthority(origin.Host, scheme) != normalizedAuthority(requestHost, scheme) {
+		return
+	}
+	r.Header.Set("Origin", origin.Scheme+"://"+appHostname)
+}
+
+func normalizedAuthority(authority, scheme string) string {
+	host, port, err := net.SplitHostPort(authority)
+	if err != nil {
+		host, port = strings.Trim(authority, "[]"), ""
+	}
+	if port == "" {
+		if scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return strings.ToLower(strings.TrimSuffix(host, ".")) + ":" + port
 }
 
 func rewriteLocalShowcaseReferer(r *http.Request, prefix, appHostname string) {

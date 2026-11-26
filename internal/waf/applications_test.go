@@ -67,6 +67,20 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		if test.id == "original-site" && !strings.Contains(recorder.Body.String(), `<base href="/graduation/">`) {
 			t.Fatalf("graduation web bundle has wrong base URL: %q", recorder.Body.String())
 		}
+		if test.id == "original-site" {
+			policy := recorder.Header().Get("Content-Security-Policy")
+			for _, directive := range []string{
+				"script-src 'self' 'wasm-unsafe-eval'",
+				"style-src 'self' 'unsafe-inline'",
+				"font-src 'self' https://fonts.gstatic.com",
+				"connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",
+				"worker-src 'self' blob:",
+			} {
+				if !strings.Contains(policy, directive) {
+					t.Fatalf("graduation CSP is missing %q: %q", directive, policy)
+				}
+			}
+		}
 		if test.id == "f1-vulnerability-lab" {
 			policy := recorder.Header().Get("Content-Security-Policy")
 			if !strings.Contains(policy, "connect-src 'none'") || recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -121,13 +135,16 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	}{
 		{"/graduation/", "منصة إدارة مشاريع التخرج 2026"},
 		{"/original/", "منصة إدارة مشاريع التخرج 2026"},
-		{"/graduation/flutter_bootstrap.js", "main.dart.js"},
+		{"/graduation/flutter_bootstrap.js", `canvasKitBaseUrl: "canvaskit/"`},
 		{"/cyberlab/", "Cybersecurity training"},
 		{"/cyberlab/assets/lab.js", "APP_BASE"},
 		{"/cyberlab/api/products?q=guide", "Secure Coding Field Guide"},
 	} {
-		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+test.path, nil)
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+test.path, nil)
 		browserHeaders(request)
+		if strings.HasPrefix(test.path, "/graduation/") {
+			request.Header.Set("Origin", "http://127.0.0.1:8080")
+		}
 		if strings.HasPrefix(test.path, "/cyberlab/") {
 			request.Header.Set("Referer", "http://127.0.0.1:8080/cyberlab/")
 		}
@@ -136,6 +153,9 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 			t.Fatalf("local route helper rejected %s (host=%q remote=%q apps=%+v)", test.path, request.Host, request.RemoteAddr, manager.Applications())
 		} else if routed.URL.Path == test.path {
 			t.Fatalf("local route helper did not strip prefix for %s", test.path)
+		} else if strings.HasPrefix(test.path, "/graduation/") &&
+			routed.Header.Get("Origin") != "http://graduation.localhost" {
+			t.Fatalf("same-origin alias was not rewritten to the protected app origin: %q", routed.Header.Get("Origin"))
 		} else if strings.HasPrefix(test.path, "/cyberlab/") &&
 			routed.Header.Get("Referer") != "http://cyberlab.localhost/" {
 			t.Fatalf("local referer was not mapped to the protected app origin: %q", routed.Header.Get("Referer"))
@@ -144,6 +164,15 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		manager.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.contains) {
 			t.Fatalf("local path route %s returned %d and %q", test.path, recorder.Code, recorder.Body.String())
+		}
+	}
+	for _, origin := range []string{"http://attacker.example", "http://127.0.0.1:8081"} {
+		crossOrigin := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/graduation/flutter_bootstrap.js", nil)
+		crossOrigin.Header.Set("Origin", origin)
+		crossOrigin.RemoteAddr = "127.0.0.1:41234"
+		if _, routed := manager.localShowcaseRoute(manager.snapshot.Load(), "127.0.0.1", crossOrigin); routed == nil ||
+			routed.Header.Get("Origin") != origin {
+			t.Fatalf("non-matching origin %q was rewritten: %v", origin, routed)
 		}
 	}
 	externalAlias := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/cyberlab/", nil)

@@ -23,6 +23,11 @@ To rebuild the static bundle embedded by NullGate:
 
 ```cmd
 flutter build web --release --base-href /graduation/
+robocopy build\web ..\..\internal\showcase\assets\graduation /E /XF .last_build_id
+if errorlevel 8 exit /b %errorlevel%
 ```
+
+The custom Flutter bootstrap serves CanvasKit from this bundle (rather than a
+third-party CDN), which is required by the graduation app's app-specific CSP.
 
 The bundled source was copied from the upstream application's `main` branch.

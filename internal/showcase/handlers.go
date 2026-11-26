@@ -79,6 +79,15 @@ func GraduationHandler() (http.Handler, error) {
 		}
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Cache-Control", "no-cache")
+		if name == "index.html" {
+			w.Header().Set("Content-Security-Policy",
+				"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; "+
+					"style-src 'self' 'unsafe-inline'; img-src 'self' data:; "+
+					"font-src 'self' https://fonts.gstatic.com; "+
+					"connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; "+
+					"worker-src 'self' blob:; frame-ancestors 'none'; "+
+					"base-uri 'self'; form-action 'self'")
+		}
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
 			_, _ = w.Write(data)
