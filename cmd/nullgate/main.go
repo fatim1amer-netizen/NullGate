@@ -133,6 +133,11 @@ func main() {
 		internalBackends["graduation-platform"] = graduationHandler
 		internalBackends["original-site"] = graduationHandler
 		internalBackends["cyber-attack-lab"] = lab.Handler()
+		f1Handler, err := showcase.F1Handler()
+		if err != nil {
+			log.Fatal(err)
+		}
+		internalBackends["f1-vulnerability-lab"] = f1Handler
 	}
 
 	legacyEngine, err := waf.NewEngine(cfg)

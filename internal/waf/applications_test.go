@@ -30,9 +30,14 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f1Handler, err := showcase.F1Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
 	internal := map[string]http.Handler{
-		"graduation-platform": graduationHandler,
-		"cyber-attack-lab":    database.Handler(),
+		"graduation-platform":  graduationHandler,
+		"cyber-attack-lab":     database.Handler(),
+		"f1-vulnerability-lab": f1Handler,
 	}
 	manager, err := NewApplicationManager(cfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "legacy fallback must not be used", http.StatusInternalServerError)
@@ -49,6 +54,7 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	}{
 		{"original-site", "graduation.localhost", "/", "منصة إدارة مشاريع التخرج 2026"},
 		{"cyber-attack-lab", "cyberlab.localhost", "/", "Cybersecurity training"},
+		{"f1-vulnerability-lab", "f1.localhost", "/", "موقع اختبار الثغرات"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, "http://"+test.host+test.path, nil)
 		request.Host = test.host
@@ -60,6 +66,13 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		}
 		if test.id == "original-site" && !strings.Contains(recorder.Body.String(), `<base href="/graduation/">`) {
 			t.Fatalf("graduation web bundle has wrong base URL: %q", recorder.Body.String())
+		}
+		if test.id == "f1-vulnerability-lab" {
+			policy := recorder.Header().Get("Content-Security-Policy")
+			if !strings.Contains(policy, "connect-src 'none'") || recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Fatalf("F1 lab response lacks isolation headers: CSP=%q nosniff=%q",
+					policy, recorder.Header().Get("X-Content-Type-Options"))
+			}
 		}
 		metrics, ok := manager.ApplicationMetrics(test.id)
 		if !ok || metrics.Metrics.Total != 1 {
@@ -141,6 +154,14 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	if externalRecorder.Code != http.StatusMisdirectedRequest {
 		t.Fatalf("non-loopback client was allowed on local path alias: %d", externalRecorder.Code)
 	}
+	f1PathAlias := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/f1/", nil)
+	browserHeaders(f1PathAlias)
+	f1PathAlias.RemoteAddr = "127.0.0.1:41234"
+	f1PathRecorder := httptest.NewRecorder()
+	manager.ServeHTTP(f1PathRecorder, f1PathAlias)
+	if f1PathRecorder.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("F1 lab was exposed through shared-origin loopback alias: %d", f1PathRecorder.Code)
+	}
 	externalRoot := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
 	browserHeaders(externalRoot)
 	externalRoot.RemoteAddr = "198.51.100.10:41234"
@@ -180,7 +201,7 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		t.Fatalf("reload persisted showcase registry: %v", err)
 	}
 	defer reloaded.Close()
-	if len(reloaded.Applications()) != 2 {
+	if len(reloaded.Applications()) != 3 {
 		t.Fatalf("showcase apps did not persist across manager restart: %+v", reloaded.Applications())
 	}
 }

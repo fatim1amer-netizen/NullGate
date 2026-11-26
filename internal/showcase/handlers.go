@@ -11,6 +11,37 @@ import (
 	"strings"
 )
 
+func F1Handler() (http.Handler, error) {
+	page, err := pages.ReadFile("assets/f1.html")
+	if err != nil {
+		return nil, err
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; "+
+				"font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; "+
+				"frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(page)
+		}
+	})
+	return handler, nil
+}
+
 func GraduationHandler() (http.Handler, error) {
 	site, err := fs.Sub(pages, "assets/graduation")
 	if err != nil {

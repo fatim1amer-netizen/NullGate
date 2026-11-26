@@ -35,8 +35,10 @@ exit /b 1
 echo NullGate is ready.
 start "" "http://127.0.0.1:8080/graduation/"
 start "" "http://127.0.0.1:8080/cyberlab/"
+start "" "http://f1.localhost:8080/"
 echo Graduation app: http://127.0.0.1:8080/graduation/
 echo Attack lab:     http://127.0.0.1:8080/cyberlab/
+echo F1 lab:         http://f1.localhost:8080/
 echo Admin panel:   http://127.0.0.1:9091/
 echo Keep the "NullGate Showcase" window open while using the sites.
 exit /b 0
@@ -45,8 +47,10 @@ exit /b 0
 echo The NullGate showcase is already running.
 start "" "http://127.0.0.1:8080/graduation/"
 start "" "http://127.0.0.1:8080/cyberlab/"
+start "" "http://f1.localhost:8080/"
 echo Graduation app: http://127.0.0.1:8080/graduation/
 echo Attack lab:     http://127.0.0.1:8080/cyberlab/
+echo F1 lab:         http://f1.localhost:8080/
 echo Admin panel:   http://127.0.0.1:9091/
 exit /b 0
 
@@ -61,5 +65,7 @@ exit /b 1
 curl.exe -fsSL --max-time 3 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36" -H "Accept: text/html,application/xhtml+xml" http://127.0.0.1:8080/ -o nul >nul 2>&1
 if errorlevel 1 exit /b 1
 curl.exe -fsS --max-time 3 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36" -H "Accept: text/html,application/xhtml+xml" http://127.0.0.1:8080/cyberlab/ -o nul >nul 2>&1
+if errorlevel 1 exit /b 1
+curl.exe --resolve f1.localhost:8080:127.0.0.1 -fsS --max-time 3 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36" -H "Accept: text/html,application/xhtml+xml" http://f1.localhost:8080/ -o nul >nul 2>&1
 if errorlevel 1 exit /b 1
 exit /b 0

@@ -699,9 +699,10 @@ func (m *ApplicationManager) validateApplicationBackend(app ProtectedApplication
 	}
 	if app.InternalKind != "" {
 		expected := map[string]string{
-			"graduation-platform": "internal://showcase/graduation-platform",
-			"original-site":       "internal://showcase/original",
-			"cyber-attack-lab":    "internal://showcase/cyber-attack-lab",
+			"graduation-platform":  "internal://showcase/graduation-platform",
+			"original-site":        "internal://showcase/original",
+			"cyber-attack-lab":     "internal://showcase/cyber-attack-lab",
+			"f1-vulnerability-lab": "internal://showcase/f1-vulnerability-lab",
 		}
 		if app.BackendURL != expected[app.InternalKind] {
 			return fmt.Errorf("invalid internal showcase backend")

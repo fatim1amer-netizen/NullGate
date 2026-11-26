@@ -105,6 +105,11 @@ func (m *ApplicationManager) InstallShowcaseApplications() error {
 			BackendURL: "internal://showcase/cyber-attack-lab", InternalKind: "cyber-attack-lab", Enabled: true,
 			Policy: ApplicationPolicy{Profile: "balanced"},
 		},
+		{
+			ID: "f1-vulnerability-lab", Name: "F1 Vulnerability Testing Lab", Hostname: "f1.localhost",
+			BackendURL: "internal://showcase/f1-vulnerability-lab", InternalKind: "f1-vulnerability-lab", Enabled: true,
+			Policy: ApplicationPolicy{Profile: "balanced"},
+		},
 	}
 	for _, app := range applications {
 		if previous, ok := existing[app.ID]; ok {
