@@ -198,6 +198,13 @@ func (m *ApplicationManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if (host == "localhost" || host == "127.0.0.1" || host == "::1") &&
+		r.URL.Path == "/" && isLoopbackRequest(r) {
+		if app, ok := snapshot.byID["original-site"]; ok && app.engine != nil && app.config.InternalKind == "original-site" {
+			http.Redirect(w, r, "/original/", http.StatusFound)
+			return
+		}
+	}
 	if app, routedRequest := m.localShowcaseRoute(snapshot, host, r); app != nil {
 		app.engine.ServeHTTP(w, routedRequest)
 		return
@@ -218,9 +225,7 @@ func (m *ApplicationManager) localShowcaseRoute(snapshot *applicationSnapshot, h
 	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
 		return nil, nil
 	}
-	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
-	remoteIP := net.ParseIP(strings.Trim(remoteHost, "[]"))
-	if err != nil || remoteIP == nil || !remoteIP.IsLoopback() {
+	if !isLoopbackRequest(r) {
 		return nil, nil
 	}
 	var appID, prefix string
@@ -249,7 +254,34 @@ func (m *ApplicationManager) localShowcaseRoute(snapshot *applicationSnapshot, h
 	urlCopy.RawPath = ""
 	routed.URL = &urlCopy
 	routed.Host = app.config.Hostname
+	rewriteLocalShowcaseReferer(routed, prefix, app.config.Hostname)
 	return app, routed
+}
+
+func rewriteLocalShowcaseReferer(r *http.Request, prefix, appHostname string) {
+	referer, err := url.Parse(r.Header.Get("Referer"))
+	if err != nil || referer.User != nil ||
+		(referer.Scheme != "http" && referer.Scheme != "https") {
+		return
+	}
+	host := strings.ToLower(strings.TrimSuffix(referer.Hostname(), "."))
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return
+	}
+	referer.Host = appHostname
+	if referer.Path == prefix || referer.Path == prefix+"/" {
+		referer.Path = "/"
+	} else if strings.HasPrefix(referer.Path, prefix+"/") {
+		referer.Path = strings.TrimPrefix(referer.Path, prefix)
+	}
+	referer.RawPath = ""
+	r.Header.Set("Referer", referer.String())
+}
+
+func isLoopbackRequest(r *http.Request) bool {
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	remoteIP := net.ParseIP(strings.Trim(remoteHost, "[]"))
+	return err == nil && remoteIP != nil && remoteIP.IsLoopback()
 }
 
 func serveLocalHealthz(w http.ResponseWriter, r *http.Request) bool {
