@@ -126,7 +126,12 @@ func main() {
 			log.Fatal(err)
 		}
 		defer lab.Close()
-		internalBackends["original-site"] = showcase.OriginalHandler()
+		graduationHandler, err := showcase.GraduationHandler()
+		if err != nil {
+			log.Fatal(err)
+		}
+		internalBackends["graduation-platform"] = graduationHandler
+		internalBackends["original-site"] = graduationHandler
 		internalBackends["cyber-attack-lab"] = lab.Handler()
 	}
 

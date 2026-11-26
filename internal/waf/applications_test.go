@@ -26,9 +26,13 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	}
 	defer database.Close()
 	cfg := appManagerConfig(t, legacy.URL)
+	graduationHandler, err := showcase.GraduationHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
 	internal := map[string]http.Handler{
-		"original-site":    showcase.OriginalHandler(),
-		"cyber-attack-lab": database.Handler(),
+		"graduation-platform": graduationHandler,
+		"cyber-attack-lab":    database.Handler(),
 	}
 	manager, err := NewApplicationManager(cfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "legacy fallback must not be used", http.StatusInternalServerError)
@@ -43,7 +47,7 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	for _, test := range []struct {
 		id, host, path, contains string
 	}{
-		{"original-site", "nullgate.localhost", "/", "NullGate"},
+		{"original-site", "graduation.localhost", "/", "منصة إدارة مشاريع التخرج 2026"},
 		{"cyber-attack-lab", "cyberlab.localhost", "/", "Cybersecurity training"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, "http://"+test.host+test.path, nil)
@@ -54,10 +58,23 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.contains) {
 			t.Fatalf("%s route returned %d and %q", test.id, recorder.Code, recorder.Body.String())
 		}
+		if test.id == "original-site" && !strings.Contains(recorder.Body.String(), `<base href="/graduation/">`) {
+			t.Fatalf("graduation web bundle has wrong base URL: %q", recorder.Body.String())
+		}
 		metrics, ok := manager.ApplicationMetrics(test.id)
 		if !ok || metrics.Metrics.Total != 1 {
 			t.Fatalf("%s metrics are not isolated/recorded: %+v", test.id, metrics)
 		}
+	}
+	legacyHostname := httptest.NewRequest(http.MethodGet, "http://nullgate.localhost/", nil)
+	legacyHostname.Host = "nullgate.localhost"
+	browserHeaders(legacyHostname)
+	legacyHostnameRecorder := httptest.NewRecorder()
+	manager.ServeHTTP(legacyHostnameRecorder, legacyHostname)
+	if legacyHostnameRecorder.Code != http.StatusOK ||
+		!strings.Contains(legacyHostnameRecorder.Body.String(), "منصة إدارة مشاريع التخرج 2026") {
+		t.Fatalf("legacy hostname did not serve graduation platform: %d %q",
+			legacyHostnameRecorder.Code, legacyHostnameRecorder.Body.String())
 	}
 	unknown := httptest.NewRequest(http.MethodGet, "http://unknown.localhost/", nil)
 	unknown.Host = "unknown.localhost"
@@ -73,7 +90,7 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	localRoot.RemoteAddr = "127.0.0.1:41234"
 	localRootRecorder := httptest.NewRecorder()
 	manager.ServeHTTP(localRootRecorder, localRoot)
-	if localRootRecorder.Code != http.StatusFound || localRootRecorder.Header().Get("Location") != "/original/" {
+	if localRootRecorder.Code != http.StatusFound || localRootRecorder.Header().Get("Location") != "/graduation/" {
 		t.Fatalf("loopback root did not direct users to original site: %d %q", localRootRecorder.Code, localRootRecorder.Header().Get("Location"))
 	}
 
@@ -89,7 +106,9 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 	for _, test := range []struct {
 		path, contains string
 	}{
-		{"/original/", "NullGate"},
+		{"/graduation/", "منصة إدارة مشاريع التخرج 2026"},
+		{"/original/", "منصة إدارة مشاريع التخرج 2026"},
+		{"/graduation/flutter_bootstrap.js", "main.dart.js"},
 		{"/cyberlab/", "Cybersecurity training"},
 		{"/cyberlab/assets/lab.js", "APP_BASE"},
 		{"/cyberlab/api/products?q=guide", "Secure Coding Field Guide"},

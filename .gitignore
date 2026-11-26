@@ -54,6 +54,10 @@ Thumbs.db
 /tmp/
 /dist/
 vendor/
+/apps/graduation_platform_2026/.dart_tool/
+/apps/graduation_platform_2026/build/
+/apps/graduation_platform_2026/.flutter-plugins-dependencies
+/apps/graduation_platform_2026/.packages
 
 # Claude Code session files
 .claude/

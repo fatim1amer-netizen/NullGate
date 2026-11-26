@@ -3,9 +3,58 @@ package showcase
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
+	"io/fs"
+	"mime"
 	"net/http"
+	"path"
 	"strings"
 )
+
+func GraduationHandler() (http.Handler, error) {
+	site, err := fs.Sub(pages, "assets/graduation")
+	if err != nil {
+		return nil, err
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		for _, prefix := range []string{"graduation/", "original/"} {
+			name = strings.TrimPrefix(name, prefix)
+		}
+		if name == "" || name == "." {
+			name = "index.html"
+		}
+		data, err := fs.ReadFile(site, name)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) || path.Ext(name) != "" {
+				http.NotFound(w, r)
+				return
+			}
+			name = "index.html"
+			data, err = fs.ReadFile(site, name)
+			if err != nil {
+				http.Error(w, "Graduation application unavailable", http.StatusInternalServerError)
+				return
+			}
+		}
+		contentType := mime.TypeByExtension(path.Ext(name))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(data)
+		}
+	})
+	return handler, nil
+}
 
 func OriginalHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

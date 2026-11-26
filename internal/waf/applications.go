@@ -205,8 +205,14 @@ func (m *ApplicationManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if (host == "localhost" || host == "127.0.0.1" || host == "::1") &&
 		r.URL.Path == "/" && isLoopbackRequest(r) {
-		if app, ok := snapshot.byID["original-site"]; ok && app.engine != nil && app.config.InternalKind == "original-site" {
-			http.Redirect(w, r, "/original/", http.StatusFound)
+		if app, ok := snapshot.byID["original-site"]; ok && app.engine != nil && app.config.InternalKind == "graduation-platform" {
+			http.Redirect(w, r, "/graduation/", http.StatusFound)
+			return
+		}
+	}
+	if host == "nullgate.localhost" {
+		if app, ok := snapshot.byID["original-site"]; ok && app.engine != nil && app.config.InternalKind == "graduation-platform" {
+			app.engine.ServeHTTP(w, r)
 			return
 		}
 	}
@@ -235,10 +241,14 @@ func (m *ApplicationManager) localShowcaseRoute(snapshot *applicationSnapshot, h
 	}
 	var appID, prefix string
 	switch {
+	case r.URL.Path == "/graduation" || r.URL.Path == "/graduation/":
+		appID, prefix = "original-site", "/graduation"
 	case r.URL.Path == "/original" || r.URL.Path == "/original/":
 		appID, prefix = "original-site", "/original"
 	case r.URL.Path == "/cyberlab" || r.URL.Path == "/cyberlab/":
 		appID, prefix = "cyber-attack-lab", "/cyberlab"
+	case strings.HasPrefix(r.URL.Path, "/graduation/"):
+		appID, prefix = "original-site", "/graduation"
 	case strings.HasPrefix(r.URL.Path, "/original/"):
 		appID, prefix = "original-site", "/original"
 	case strings.HasPrefix(r.URL.Path, "/cyberlab/"):
@@ -689,8 +699,9 @@ func (m *ApplicationManager) validateApplicationBackend(app ProtectedApplication
 	}
 	if app.InternalKind != "" {
 		expected := map[string]string{
-			"original-site":    "internal://showcase/original",
-			"cyber-attack-lab": "internal://showcase/cyber-attack-lab",
+			"graduation-platform": "internal://showcase/graduation-platform",
+			"original-site":       "internal://showcase/original",
+			"cyber-attack-lab":    "internal://showcase/cyber-attack-lab",
 		}
 		if app.BackendURL != expected[app.InternalKind] {
 			return fmt.Errorf("invalid internal showcase backend")

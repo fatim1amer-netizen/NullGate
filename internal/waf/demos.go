@@ -87,17 +87,17 @@ func (m *ApplicationManager) InstallDemoApplications() error {
 	return nil
 }
 
-// InstallShowcaseApplications adds the original GitHub Pages site and the
-// database-backed attack lab without replacing existing operator settings.
+// InstallShowcaseApplications adds the graduation platform and database-backed
+// attack lab without replacing existing operator policy settings.
 func (m *ApplicationManager) InstallShowcaseApplications() error {
-	existing := make(map[string]bool)
+	existing := make(map[string]ProtectedApplication)
 	for _, app := range m.Applications() {
-		existing[app.ID] = true
+		existing[app.ID] = app
 	}
 	applications := []ProtectedApplication{
 		{
-			ID: "original-site", Name: "NullGate Original Website", Hostname: "nullgate.localhost",
-			BackendURL: "internal://showcase/original", InternalKind: "original-site", Enabled: true,
+			ID: "original-site", Name: "Graduation Project Platform", Hostname: "graduation.localhost",
+			BackendURL: "internal://showcase/graduation-platform", InternalKind: "graduation-platform", Enabled: true,
 			Policy: ApplicationPolicy{Profile: "balanced"},
 		},
 		{
@@ -107,7 +107,16 @@ func (m *ApplicationManager) InstallShowcaseApplications() error {
 		},
 	}
 	for _, app := range applications {
-		if existing[app.ID] {
+		if previous, ok := existing[app.ID]; ok {
+			if app.ID == "original-site" {
+				previous.Name = app.Name
+				previous.Hostname = app.Hostname
+				previous.BackendURL = app.BackendURL
+				previous.InternalKind = app.InternalKind
+				if err := m.UpsertApplication(previous); err != nil {
+					return fmt.Errorf("update %s: %w", app.ID, err)
+				}
+			}
 			continue
 		}
 		if err := m.UpsertApplication(app); err != nil {

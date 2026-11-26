@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed assets/original.html assets/lab.html assets/lab.css assets/lab.js
+//go:embed assets/original.html assets/lab.html assets/lab.css assets/lab.js assets/graduation
 var pages embed.FS
 
 var emailPattern = regexp.MustCompile(`^[^@\s]{1,128}@[^@\s]{1,128}\.[^@\s]{2,63}$`)

@@ -33,20 +33,20 @@ exit /b 1
 
 :ready
 echo NullGate is ready.
-start "" "http://127.0.0.1:8080/original/"
+start "" "http://127.0.0.1:8080/graduation/"
 start "" "http://127.0.0.1:8080/cyberlab/"
-echo Original site: http://127.0.0.1:8080/original/
-echo Cyber lab:     http://127.0.0.1:8080/cyberlab/
+echo Graduation app: http://127.0.0.1:8080/graduation/
+echo Attack lab:     http://127.0.0.1:8080/cyberlab/
 echo Admin panel:   http://127.0.0.1:9091/
 echo Keep the "NullGate Showcase" window open while using the sites.
 exit /b 0
 
 :already_running
 echo The NullGate showcase is already running.
-start "" "http://127.0.0.1:8080/original/"
+start "" "http://127.0.0.1:8080/graduation/"
 start "" "http://127.0.0.1:8080/cyberlab/"
-echo Original site: http://127.0.0.1:8080/original/
-echo Cyber lab:     http://127.0.0.1:8080/cyberlab/
+echo Graduation app: http://127.0.0.1:8080/graduation/
+echo Attack lab:     http://127.0.0.1:8080/cyberlab/
 echo Admin panel:   http://127.0.0.1:9091/
 exit /b 0
 
