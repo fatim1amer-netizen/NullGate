@@ -68,6 +68,7 @@ func (h *Honeypot) Triggered(r *http.Request, clientIP string) (bool, string) {
 // client is.
 type Tarpit struct {
 	cfg     TarpitConfig
+	stop    <-chan struct{}
 	mu      sync.Mutex
 	windows map[string]*tarpitWindow
 }
@@ -79,8 +80,12 @@ type tarpitWindow struct {
 }
 
 // NewTarpit constructs a tarpit and starts its cleanup loop.
-func NewTarpit(cfg TarpitConfig) *Tarpit {
-	t := &Tarpit{cfg: cfg, windows: make(map[string]*tarpitWindow)}
+func NewTarpit(cfg TarpitConfig, stopChannels ...<-chan struct{}) *Tarpit {
+	var stop <-chan struct{}
+	if len(stopChannels) > 0 {
+		stop = stopChannels[0]
+	}
+	t := &Tarpit{cfg: cfg, stop: stop, windows: make(map[string]*tarpitWindow)}
 	if cfg.Enabled {
 		go t.cleanup()
 	}
@@ -126,14 +131,19 @@ func (t *Tarpit) Delay(clientIP string) time.Duration {
 func (t *Tarpit) cleanup() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		t.mu.Lock()
-		for ip, w := range t.windows {
-			if now.Sub(w.lastSeen) > 5*time.Minute {
-				delete(t.windows, ip)
+	for {
+		select {
+		case <-t.stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			t.mu.Lock()
+			for ip, w := range t.windows {
+				if now.Sub(w.lastSeen) > 5*time.Minute {
+					delete(t.windows, ip)
+				}
 			}
+			t.mu.Unlock()
 		}
-		t.mu.Unlock()
 	}
 }

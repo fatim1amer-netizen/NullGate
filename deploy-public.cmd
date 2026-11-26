@@ -2,8 +2,8 @@
 REM ==========================================================================
 REM  NullGate WAF - Public Deployment Script (Windows)
 REM
-REM  This script deploys NullGate with a public URL accessible from anywhere.
-REM  It automatically sets up Cloudflare Tunnel (free) or ngrok.
+REM  This script exposes only NullGate's protected listener.
+REM  Configure a trusted production upstream in configs\config.yaml first.
 REM ==========================================================================
 setlocal enabledelayedexpansion
 
@@ -42,31 +42,24 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 echo.
-echo [1/4] Building NullGate...
+echo [1/3] Building NullGate...
 go build -trimpath -ldflags="-s -w" -o nullgate.exe .\cmd\nullgate || goto :error
 
-echo [2/4] Building demo backend...
-go build -trimpath -ldflags="-s -w" -o demo-backend.exe .\examples\vulnerable-backend || goto :error
-
 echo.
-echo [3/4] Starting services...
+echo [2/3] Starting NullGate...
 echo.
-
-REM Start backend
-start "NullGate-Backend" /MIN demo-backend.exe
-timeout /t 2 /nobreak >nul
 
 REM Start WAF with admin enabled
-start "NullGate-WAF" /MIN nullgate.exe --config configs\config.yaml --admin
+for /f "usebackq" %%P in (`powershell -NoProfile -Command "$p=Start-Process -FilePath '%CD%\nullgate.exe' -ArgumentList '--config','configs\config.yaml','--admin' -PassThru; $p.Id"`) do set WAF_PID=%%P
 timeout /t 3 /nobreak >nul
 
-echo [4/4] Creating public tunnel...
+echo [3/3] Creating public tunnel...
 echo.
 
 if "%TUNNEL_TYPE%"=="cloudflare" (
     echo Starting Cloudflare Tunnel...
     echo.
-    start "NullGate-Tunnel" cloudflared tunnel --url http://localhost:9091
+    for /f "usebackq" %%P in (`powershell -NoProfile -Command "$p=Start-Process -FilePath cloudflared -ArgumentList 'tunnel','--url','http://localhost:8080' -PassThru; $p.Id"`) do set TUNNEL_PID=%%P
     timeout /t 5 /nobreak >nul
     echo.
     echo ============================================
@@ -76,7 +69,7 @@ if "%TUNNEL_TYPE%"=="cloudflare" (
 ) else if "%TUNNEL_TYPE%"=="ngrok" (
     echo Starting ngrok tunnel...
     echo.
-    start "NullGate-Tunnel" ngrok http 9091 --log stdout
+    for /f "usebackq" %%P in (`powershell -NoProfile -Command "$p=Start-Process -FilePath ngrok -ArgumentList 'http','8080','--log','stdout' -PassThru; $p.Id"`) do set TUNNEL_PID=%%P
     timeout /t 3 /nobreak >nul
     echo.
     echo ============================================
@@ -86,31 +79,28 @@ if "%TUNNEL_TYPE%"=="cloudflare" (
 )
 
 echo.
-echo [SUCCESS] NullGate is now publicly accessible!
+echo [SUCCESS] The protected WAF listener is now publicly accessible.
 echo.
 echo Services running:
 echo   - WAF:      http://localhost:8080
-echo   - Admin:    http://localhost:9091
-echo   - Backend:  http://localhost:3000
+echo   - Admin:    http://127.0.0.1:9091 (local only)
 echo.
-echo Default login: admin / admin123
-echo CHANGE THE PASSWORD IMMEDIATELY!
+echo The tunnel forwards only to port 8080. No default admin credentials are configured.
+echo Configure server.target_backend to a trusted application before deployment; do not use the vulnerable example backend.
 echo.
-echo Press any key to stop all services...
+echo Press any key to stop this session's services...
 pause >nul
 
 echo.
 echo Stopping services...
-taskkill /f /im nullgate.exe >nul 2>&1
-taskkill /f /im demo-backend.exe >nul 2>&1
-taskkill /f /im cloudflared.exe >nul 2>&1
-taskkill /f /im ngrok.exe >nul 2>&1
+if defined WAF_PID powershell -NoProfile -Command "Stop-Process -Id %WAF_PID% -ErrorAction SilentlyContinue"
+if defined TUNNEL_PID powershell -NoProfile -Command "Stop-Process -Id %TUNNEL_PID% -ErrorAction SilentlyContinue"
 
 echo Done.
 goto :eof
 
 :error
 echo.
-echo [ERROR] Build failed. Make sure Go 1.21+ is installed.
+echo [ERROR] Build failed. Make sure Go 1.25+ is installed.
 pause
 exit /b 1

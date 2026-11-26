@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a30">
+  <title>NullGate | Cybersecurity Lab</title>
+  <link rel="stylesheet" href="assets/lab.css">
+</head>
+<body>
+<header><nav><div class="brand">NULLGATE <b>/ LAB</b></div><div><a href="#shop">Store</a><a href="#account">Account</a><a href="#booking">Bookings</a><a href="http://127.0.0.1:9091">WAF Admin</a></div></nav></header>
+<main class="wrap">
+  <div class="eyebrow">Local protected application</div>
+  <h1>Cybersecurity training, grounded in a real app.</h1>
+  <p class="lead">Explore safe input handling through a functioning store and booking workflow backed by SQLite. Requests travel through NullGate before reaching this app. Test editable payloads against live endpoints; no dangerous query is executed.</p>
+  <div class="grid">
+    <section class="card span8" id="shop">
+      <h2>Product catalog</h2><p class="small">Search exercises submit to the real parameterized database endpoint.</p>
+      <form id="searchForm" class="row"><div class="field"><label for="query">Search query</label><input id="query" value="guide" maxlength="100"></div><button>Send search request</button></form>
+      <div id="products" class="items"></div><div id="searchStatus" class="status"></div>
+    </section>
+    <section class="card span4" id="account">
+      <h2>Account</h2><p class="small">Accounts are persisted locally. Passwords are stored as bcrypt hashes.</p>
+      <form id="authForm">
+        <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required></div>
+        <div class="field" id="nameField"><label for="name">Name (registration)</label><input id="name" autocomplete="name"></div>
+        <div class="field"><label for="password">Password (12+ characters)</label><input id="password" type="password" autocomplete="current-password" minlength="12" required></div>
+        <div class="row"><button type="button" id="loginButton">Sign in</button><button type="button" class="secondary" id="registerButton">Create account</button></div>
+      </form><div id="authStatus" class="status"></div><button id="logoutButton" class="secondary" hidden>Sign out</button>
+    </section>
+    <section class="card span6" id="booking">
+      <h2>Booking system</h2><p class="small">Create a booking and view only your own records.</p>
+      <form id="bookingForm">
+        <div class="field"><label for="destination">Destination</label><input id="destination" maxlength="100" required placeholder="Reykjavik"></div>
+        <div class="row"><div class="field"><label for="travelDate">Travel date</label><input id="travelDate" type="date" required></div><div class="field"><label for="guests">Guests</label><select id="guests"><option>1</option><option>2</option><option>3</option><option>4</option></select></div></div>
+        <button>Save booking</button>
+      </form><div id="bookingStatus" class="status"></div><div id="bookings" class="items"></div>
+    </section>
+    <section class="card span6">
+      <h2>Product review</h2><p class="small">Reviews are associated with your account and validated by the application.</p>
+      <form id="reviewForm"><div class="field"><label for="productId">Product</label><select id="productId"></select></div><div class="field"><label for="rating">Rating</label><select id="rating"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></div><div class="field"><label for="reviewText">Review</label><textarea id="reviewText" minlength="3" maxlength="1000"></textarea></div><button>Submit review</button></form><div id="reviewStatus" class="status"></div>
+    </section>
+    <section class="card span12">
+      <h2>Live WAF input test</h2>
+      <p class="small">Edit the query, send it to the real catalog route, and inspect the actual HTTP response. This is a safe, vulnerable-looking test string: the backend uses prepared SQL and renders no HTML from search input. The admin dashboard provides protected/unprotected request comparison and observed WAF decisions.</p>
+      <div class="row"><button class="secondary payload" data-value="' OR '1'='1">SQL injection test string</button><button class="secondary payload" data-value="&lt;script&gt;alert(1)&lt;/script&gt;">XSS test string</button><button class="secondary" id="activityButton">Load my activity</button></div>
+      <div class="field"><label for="rawQuery">Editable request parameter (q)</label><input id="rawQuery" value="' OR '1'='1"></div><pre id="rawResponse" class="code">Send a test request to view its real status and response.</pre><div id="activity" class="items"></div>
+    </section>
+    <section class="card span12">
+      <h2>Compare protected and unprotected processing</h2>
+      <p class="small">The unprotected side is not exposed as a network route. Run comparisons from the localhost-only, authenticated NullGate admin dashboard at <a href="http://127.0.0.1:9091">127.0.0.1:9091</a>, selecting “Cybersecurity Attack Lab”. It records actual responses from this handler and the matching WAF-protected request.</p>
+      <p class="pill">Loopback-only comparison · no public vulnerable backend</p>
+    </section>
+  </div>
+</main>
+<script src="assets/lab.js" defer></script>
+</body>
+</html>

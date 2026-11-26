@@ -1,6 +1,6 @@
 # Binaries
-nullgate
-nullgate.exe
+/nullgate
+/nullgate.exe
 /bin/
 *.exe
 *.dll
@@ -17,6 +17,15 @@ coverage.html
 # Logs (runtime output)
 logs/
 *.log
+/data/apps.json
+/data/showcase-apps.json
+/data/showcase-admin.hash
+/data/showcase-admin.hash.tmp
+/data/showcase.db
+/data/showcase.db-shm
+/data/showcase.db-wal
+/data/showcase.db-journal
+/data/.apps-*.tmp
 
 # Secrets & production config (NEVER commit!)
 *.secret
@@ -45,6 +54,10 @@ Thumbs.db
 /tmp/
 /dist/
 vendor/
+/apps/graduation_platform_2026/.dart_tool/
+/apps/graduation_platform_2026/build/
+/apps/graduation_platform_2026/.flutter-plugins-dependencies
+/apps/graduation_platform_2026/.packages
 
 # Claude Code session files
 .claude/

@@ -89,12 +89,18 @@ func StartAutoTLS(cfg *Config, handler http.Handler) error {
 	}
 
 	// HTTP server on :80 for ACME challenges + redirect to HTTPS.
+	httpHandler := mgr.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := "https://" + r.Host + r.URL.RequestURI()
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	}))
 	httpServer := &http.Server{
 		Addr: ":http",
-		Handler: mgr.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			target := "https://" + r.Host + r.URL.RequestURI()
-			http.Redirect(w, r, target, http.StatusMovedPermanently)
-		})),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if serveLocalHealthz(w, r) {
+				return
+			}
+			httpHandler.ServeHTTP(w, r)
+		}),
 		ReadTimeout:       5 * time.Second,
 		ReadHeaderTimeout: 3 * time.Second,
 		WriteTimeout:      5 * time.Second,

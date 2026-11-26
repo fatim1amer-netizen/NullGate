@@ -20,6 +20,17 @@ server:
   # Leave empty if the WAF is directly internet-facing.
   trusted_proxies: []
 
+# ------------------------------ Applications -------------------------------
+applications:
+  registry_path: "data/apps.json"   # separate, atomically-written persistent app registry
+  # Additional upstream authorities must be explicitly trusted here.
+  # Entries may be hostnames (standard ports only) or exact host:port values.
+  # The configured server.target_backend authority is trusted automatically.
+  allowed_upstream_hosts: []
+
+showcase:
+  database_path: "data/showcase.db"
+
 # ------------------------------ Protocol hygiene ---------------------------
 protocol:
   max_url_length: 8192
@@ -159,12 +170,12 @@ tarpit:
 
 # ------------------------------ Admin dashboard ----------------------------
 admin:
-  enabled: true              # enabled by default for public access
-  listen_addr: "0.0.0.0:9091"  # listen on all interfaces for tunnel access
+  enabled: false             # enable only after setting a strong password hash
+  listen_addr: "127.0.0.1:9091"
   username: "admin"
-  password_hash: "sha256:8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # default: admin123 (CHANGE THIS!)
-  read_only: false           # allow full control
-  require_localhost: false   # allow external access through tunnel
+  password_hash: ""          # set a strong hash before enabling write controls
+  read_only: true
+  require_localhost: true
 
 # ------------------------------ Metrics ------------------------------------
 metrics:

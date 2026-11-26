@@ -216,21 +216,10 @@ ssh -L 9091:127.0.0.1:9091 user@yourserver.com
 
 Then open `http://localhost:9091` in your browser.
 
-### Option 2: Expose with Caution
-
-**⚠ Only do this with strong authentication enabled.**
-
-Edit config:
-
-```yaml
-admin:
-  enabled: true
-  listen_addr: "0.0.0.0:9091"  # ⚠ Exposed to network
-  require_localhost: false
-  password_hash: "sha256:..."  # Must be set
-```
-
-Then access `https://yourdomain.com:9091`.
+Do not expose the admin listener through a public tunnel or port mapping. Use
+an SSH tunnel or private VPN. App-management APIs additionally require a strong
+password hash and `admin.read_only: false`; the default config is read-only and
+localhost-only.
 
 ---
 
@@ -292,7 +281,7 @@ scrape_configs:
 ### Health Check
 
 ```bash
-curl http://127.0.0.1:9091/healthz
+curl -I http://127.0.0.1:8080/
 ```
 
 ---
@@ -359,7 +348,7 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 **Fix:**
 1. Verify service is running: `sudo systemctl status nullgate`
 2. Check SSH tunnel is active.
-3. Ensure `admin.enabled: true` in config.
+3. Ensure `admin.enabled: true` and a non-empty `admin.password_hash` are set in config.
 
 ---
 

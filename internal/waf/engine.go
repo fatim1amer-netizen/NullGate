@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,22 +34,32 @@ var landingHTML string
 type Engine struct {
 	config *Config
 
-	proxy       *httputil.ReverseProxy
-	ipResolver  *IPResolver
-	protocol    *ProtocolGuard
-	rateLimiter *RateLimiter
-	pow         *PoWValidator
-	bot         *BotDetector
-	behavior    *BehaviorTracker
-	honeypot    *Honeypot
-	tarpit      *Tarpit
-	csrf        *CSRFManager
-	response    *ResponseGuard
-	rules       *RuleEngine
-	decoder     *Decoder
-	blocklist   *Blocklist
-	logger      *Logger
-	metrics     *Metrics
+	proxy         *httputil.ReverseProxy
+	backend       http.Handler
+	applicationID string
+	ipResolver    *IPResolver
+	protocol      *ProtocolGuard
+	rateLimiter   *RateLimiter
+	pow           *PoWValidator
+	bot           *BotDetector
+	behavior      *BehaviorTracker
+	honeypot      *Honeypot
+	tarpit        *Tarpit
+	csrf          *CSRFManager
+	response      *ResponseGuard
+	rules         *RuleEngine
+	decoder       *Decoder
+	blocklist     *Blocklist
+	logger        *Logger
+	metrics       *Metrics
+	stop          chan struct{}
+	closeOnce     sync.Once
+}
+
+func setWAFDecision(r *http.Request, update func(*WAFDecision)) {
+	if decision, _ := r.Context().Value(wafDecisionContextKey{}).(*WAFDecision); decision != nil {
+		update(decision)
+	}
 }
 
 // NewEngine constructs and wires all subsystems from a validated config.
@@ -60,6 +72,7 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	logger := NewLogger(cfg.Logging)
 	metrics := NewMetrics()
 	blocklist := NewBlocklist()
+	stop := make(chan struct{})
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	// Preserve the original director but add header sanitization so a client
@@ -77,35 +90,85 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		metrics.IncProxyError()
-		logger.Error("proxy error", map[string]interface{}{"error": err.Error(), "path": r.URL.Path})
+		fields := map[string]interface{}{"error": err.Error(), "path": r.URL.Path}
+		if eID := requestApplicationID(r); eID != "" {
+			fields["application_id"] = eID
+		}
+		logger.Error("proxy error", fields)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
 
 	e := &Engine{
 		config:      cfg,
 		proxy:       proxy,
+		backend:     proxy,
+		stop:        stop,
 		ipResolver:  NewIPResolver(cfg.IP, cfg.Server.TrustedProxies),
 		protocol:    NewProtocolGuard(cfg.Protocol),
-		rateLimiter: NewRateLimiter(cfg.RateLimit),
+		rateLimiter: NewRateLimiter(cfg.RateLimit, stop),
 		pow:         NewPoWValidator(cfg.PoW),
 		bot:         NewBotDetector(cfg.Bot),
 		blocklist:   blocklist,
 		honeypot:    NewHoneypot(cfg.Honeypot, blocklist),
-		tarpit:      NewTarpit(cfg.Tarpit),
-		csrf:        NewCSRFManager(cfg.CSRF),
+		tarpit:      NewTarpit(cfg.Tarpit, stop),
+		csrf:        NewCSRFManager(cfg.CSRF, stop),
 		response:    responseGuard,
-		rules:       NewRuleEngine(cfg.Rules.ParanoiaLevel, nil),
+		rules:       NewRuleEngine(cfg.Rules.ParanoiaLevel, cfg.Rules.CustomPatterns),
 		decoder:     NewDecoder(cfg.Decoding),
 		logger:      logger,
 		metrics:     metrics,
 	}
-	e.behavior = NewBehaviorTracker(cfg.Behavior, blocklist)
+	e.behavior = NewBehaviorTracker(cfg.Behavior, blocklist, stop)
 
 	// Background maintenance.
-	go blocklist.Cleanup(time.Minute)
-	go e.refreshGauges()
+	go blocklist.CleanupUntil(time.Minute, stop)
+	go e.refreshGauges(stop)
 
 	return e, nil
+}
+
+// NewEngineWithBackend constructs the regular WAF pipeline around an in-process
+// backend. It is intended for synthetic demo applications that must not bind a
+// public backend listener.
+func NewEngineWithBackend(cfg *Config, backend http.Handler) (*Engine, error) {
+	if backend == nil {
+		return nil, fmt.Errorf("in-process backend is required")
+	}
+	e, err := NewEngine(cfg)
+	if err != nil {
+		return nil, err
+	}
+	e.backend = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.response.Apply(w.Header(), r)
+		sw := &statusResponseWriter{ResponseWriter: w}
+		sanitizeForwardHeaders(r)
+		backend.ServeHTTP(sw, r)
+		if sw.status == 0 {
+			sw.status = http.StatusOK
+		}
+		e.metrics.RecordStatus(sw.status)
+	})
+	return e, nil
+}
+
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
 }
 
 // Logger/Metrics/Blocklist/Rules expose subsystems for the runner (admin, selftest).
@@ -115,11 +178,24 @@ func (e *Engine) Blocklist() *Blocklist { return e.blocklist }
 func (e *Engine) Rules() *RuleEngine    { return e.rules }
 func (e *Engine) Config() *Config       { return e.config }
 
-func (e *Engine) refreshGauges() {
+// Close stops the engine's maintenance goroutines and closes its logger.
+func (e *Engine) Close() {
+	e.closeOnce.Do(func() {
+		close(e.stop)
+		e.logger.Close()
+	})
+}
+
+func (e *Engine) refreshGauges(stop <-chan struct{}) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		e.metrics.SetTracked(int64(e.rateLimiter.TrackedClients() + e.behavior.TrackedClients()))
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			e.metrics.SetTracked(int64(e.rateLimiter.TrackedClients() + e.behavior.TrackedClients()))
+		}
 	}
 }
 
@@ -128,10 +204,15 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	e.metrics.IncTotal()
 	clientIP := e.ipResolver.ClientIP(r)
+	r = r.WithContext(context.WithValue(r.Context(), clientIPContextKey{}, clientIP))
 
 	e.logger.Debug("incoming request", map[string]interface{}{
 		"method": r.Method, "path": r.URL.Path, "client_ip": clientIP,
+		"application_id": e.applicationID,
 	})
+	if e.applicationID != "" {
+		r = r.WithContext(context.WithValue(r.Context(), applicationIDContextKey{}, e.applicationID))
+	}
 
 	// 1. Protocol hygiene (fail-closed on any structural violation).
 	if err := e.protocol.Check(r); err != nil {
@@ -238,13 +319,11 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Issue a fresh CSRF cookie on safe requests so forms can submit later.
 	if e.config.CSRF.Enabled && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
-		if _, err := r.Cookie("csrf_token"); err != nil {
-			if tok := e.csrf.GenerateToken(); tok != "" {
-				http.SetCookie(w, &http.Cookie{
-					Name: "csrf_token", Value: tok, Path: "/",
-					HttpOnly: false, SameSite: http.SameSiteStrictMode, MaxAge: 1800,
-				})
-			}
+		if tok := e.csrf.GenerateToken(); tok != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name: "csrf_token", Value: tok, Path: "/",
+				HttpOnly: false, SameSite: http.SameSiteStrictMode, MaxAge: 1800,
+			})
 		}
 	}
 
@@ -256,29 +335,58 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Passed all gates — forward to the backend.
 	e.behavior.RecordAllow(clientIP)
 	e.metrics.IncAllowed()
-	e.proxy.ServeHTTP(w, r)
+	e.backend.ServeHTTP(w, r)
 
 	e.metrics.ObserveLatency(time.Since(start))
 	if e.config.Logging.EnableAccessLog {
 		e.logger.Info("request allowed", map[string]interface{}{
 			"method": r.Method, "path": r.URL.Path, "client_ip": clientIP,
-			"duration_ms": time.Since(start).Milliseconds(),
+			"application_id": e.applicationID,
+			"duration_ms":    time.Since(start).Milliseconds(),
 		})
 	}
 }
 
 // deny writes a rejection, records metrics, and feeds the behavioral escalator.
 func (e *Engine) deny(w http.ResponseWriter, r *http.Request, clientIP, layer, reason string, status int) {
+	setWAFDecision(r, func(decision *WAFDecision) {
+		decision.Blocked = true
+		decision.Layer = layer
+		decision.Reason = reason
+	})
 	e.metrics.IncBlocked()
 	e.logger.Warn("request blocked", map[string]interface{}{
 		"layer": layer, "reason": reason, "client_ip": clientIP,
 		"method": r.Method, "path": r.URL.Path, "user_agent": r.UserAgent(),
+		"application_id": e.applicationID,
 	})
 	if e.behavior.RecordBlock(clientIP) {
-		e.logger.Warn("client escalated to blocklist", map[string]interface{}{"client_ip": clientIP})
+		e.logger.Warn("client escalated to blocklist", map[string]interface{}{
+			"client_ip": clientIP, "application_id": e.applicationID,
+		})
 	}
+
 	// Generic, information-poor error body: never reveal which rule fired.
 	http.Error(w, "Forbidden", statusOrDefault(status))
+}
+
+type applicationIDContextKey struct{}
+type clientIPContextKey struct{}
+type wafDecisionContextKey struct{}
+
+// WAFDecision records the decision made for a single request. It is attached
+// only to controlled comparison requests and is not retained globally.
+type WAFDecision struct {
+	Blocked bool          `json:"blocked"`
+	Layer   string        `json:"layer,omitempty"`
+	Reason  string        `json:"reason,omitempty"`
+	Score   int           `json:"score"`
+	Rules   []MatchResult `json:"rules,omitempty"`
+}
+
+func requestApplicationID(r *http.Request) string {
+	id, _ := r.Context().Value(applicationIDContextKey{}).(string)
+	return id
 }
 
 func statusOrDefault(s int) int {
@@ -293,6 +401,12 @@ func statusOrDefault(s int) int {
 // fully-decoded form (see Decoder.Variants).
 func (e *Engine) inspect(r *http.Request, body []byte) (ScanResult, bool) {
 	var agg ScanResult
+	defer func() {
+		setWAFDecision(r, func(decision *WAFDecision) {
+			decision.Score = agg.AnomalyScore
+			decision.Rules = append([]MatchResult(nil), agg.Matches...)
+		})
+	}()
 
 	scan := func(value string) bool {
 		if value == "" {
@@ -495,6 +609,15 @@ func sanitizeForwardHeaders(r *http.Request) {
 	}
 	// Re-stamp a trustworthy forwarded chain for the backend.
 	r.Header.Set("X-Forwarded-Host", r.Host)
+	if clientIP, _ := r.Context().Value(clientIPContextKey{}).(string); clientIP != "" {
+		r.Header.Set("X-Forwarded-For", clientIP)
+		r.Header.Set("X-Real-IP", clientIP)
+	}
+	if r.TLS != nil {
+		r.Header.Set("X-Forwarded-Proto", "https")
+	} else {
+		r.Header.Set("X-Forwarded-Proto", "http")
+	}
 	r.Header.Set("Via", "1.1 nullgate")
 }
 

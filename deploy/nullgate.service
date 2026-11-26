@@ -3,7 +3,8 @@
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now nullgate
 #
-# The service runs as an unprivileged user, read-only where possible.
+# The service runs as an unprivileged user, with only logs and persistent
+# application/TLS state writable.
 
 [Unit]
 Description=NullGate WAF — fail-closed web application firewall
@@ -18,12 +19,14 @@ User=nullgate
 Group=nullgate
 
 # The WAF binary and its read-only configuration.
-ExecStart=/opt/nullgate/nullgate --config /opt/nullgate/configs/config.yaml
+ExecStart=/opt/nullgate/nullgate --config /opt/nullgate/configs/config.yaml --app-registry /var/lib/nullgate/apps.json
 WorkingDirectory=/opt/nullgate
 Restart=on-failure
 RestartSec=3
+StateDirectory=nullgate
+StateDirectoryMode=0700
 
-# Only writable path: structured logs (if logging.output is "file").
+# Structured logs (when logging.output is "file").
 ReadWritePaths=/var/log/nullgate
 StandardOutput=journal
 StandardError=journal

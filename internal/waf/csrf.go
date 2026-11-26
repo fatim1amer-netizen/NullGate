@@ -21,18 +21,24 @@ type CSRFManager struct {
 	ttl            time.Duration
 	excludePaths   map[string]bool
 	excludeMethods map[string]bool
+	stop           <-chan struct{}
 }
 
 // NewCSRFManager builds a manager and starts its expiry-sweeping goroutine.
-func NewCSRFManager(cfg CSRFConfig) *CSRFManager {
+func NewCSRFManager(cfg CSRFConfig, stopChannels ...<-chan struct{}) *CSRFManager {
 	ttl := time.Duration(cfg.TokenTTLMin) * time.Minute
 	if ttl <= 0 {
 		ttl = 30 * time.Minute
+	}
+	var stop <-chan struct{}
+	if len(stopChannels) > 0 {
+		stop = stopChannels[0]
 	}
 	m := &CSRFManager{
 		ttl:            ttl,
 		excludePaths:   make(map[string]bool),
 		excludeMethods: make(map[string]bool),
+		stop:           stop,
 	}
 	for _, p := range cfg.ExcludePaths {
 		m.excludePaths[p] = true
@@ -114,13 +120,18 @@ func ConstantTimeEqual(a, b string) bool {
 func (m *CSRFManager) cleanup() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		m.tokens.Range(func(key, value interface{}) bool {
-			if now.After(value.(time.Time)) {
-				m.tokens.Delete(key)
-			}
-			return true
-		})
+	for {
+		select {
+		case <-m.stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			m.tokens.Range(func(key, value interface{}) bool {
+				if now.After(value.(time.Time)) {
+					m.tokens.Delete(key)
+				}
+				return true
+			})
+		}
 	}
 }

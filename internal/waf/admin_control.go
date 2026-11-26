@@ -98,6 +98,10 @@ func (a *AdminServer) guardWrite(w http.ResponseWriter, r *http.Request) bool {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin is read-only; set admin.read_only=false to allow control actions"})
 		return false
 	}
+	if a.cfg.PasswordHash == "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin password authentication is required for control actions"})
+		return false
+	}
 	return true
 }
 

@@ -2,8 +2,8 @@
 # ==========================================================================
 #  NullGate WAF - Public Deployment Script (Linux/macOS)
 #
-#  This script deploys NullGate with a public URL accessible from anywhere.
-#  It automatically sets up Cloudflare Tunnel (free) or ngrok.
+#  This script exposes only the protected WAF listener through a public tunnel.
+#  The admin dashboard stays on loopback; configure a trusted real upstream.
 # ==========================================================================
 
 set -e
@@ -38,36 +38,27 @@ else
 fi
 
 echo ""
-echo "[1/4] Building NullGate..."
+echo "[1/3] Building NullGate..."
 go build -trimpath -ldflags="-s -w" -o nullgate ./cmd/nullgate
 
-echo "[2/4] Building demo backend..."
-go build -trimpath -ldflags="-s -w" -o demo-backend ./examples/vulnerable-backend
-
 echo ""
-echo "[3/4] Starting services..."
+echo "[2/3] Starting NullGate..."
 echo ""
-
-# Start backend
-./demo-backend &
-BACKEND_PID=$!
-sleep 2
 
 # Start WAF with admin enabled
 ./nullgate --config configs/config.yaml --admin &
 WAF_PID=$!
 sleep 3
 
-echo "[4/4] Creating public tunnel..."
+echo "[3/3] Creating public tunnel..."
 echo ""
 
 # Cleanup function
 cleanup() {
     echo ""
     echo "Stopping services..."
-    kill $BACKEND_PID $WAF_PID 2>/dev/null || true
-    pkill -f cloudflared 2>/dev/null || true
-    pkill -f ngrok 2>/dev/null || true
+    if [ -n "${TUNNEL_PID:-}" ]; then kill "$TUNNEL_PID" 2>/dev/null || true; fi
+    kill "$WAF_PID" 2>/dev/null || true
     echo "Done."
     exit 0
 }
@@ -77,7 +68,7 @@ trap cleanup SIGINT SIGTERM
 if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
     echo "Starting Cloudflare Tunnel..."
     echo ""
-    cloudflared tunnel --url http://localhost:9091 &
+    cloudflared tunnel --url http://localhost:8080 &
     TUNNEL_PID=$!
     sleep 5
     echo ""
@@ -88,7 +79,7 @@ if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
 elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
     echo "Starting ngrok tunnel..."
     echo ""
-    ngrok http 9091 &
+    ngrok http 8080 &
     TUNNEL_PID=$!
     sleep 3
     echo ""
@@ -99,15 +90,14 @@ elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
 fi
 
 echo ""
-echo "[SUCCESS] NullGate is now publicly accessible!"
+echo "[SUCCESS] The protected WAF listener is now publicly accessible."
 echo ""
 echo "Services running:"
 echo "  - WAF:      http://localhost:8080"
-echo "  - Admin:    http://localhost:9091"
-echo "  - Backend:  http://localhost:3000"
+echo "  - Admin:    http://127.0.0.1:9091 (local only)"
 echo ""
-echo "Default login: admin / admin123"
-echo "CHANGE THE PASSWORD IMMEDIATELY!"
+echo "The tunnel forwards only to port 8080. No default admin credentials are configured."
+echo "Configure server.target_backend to a trusted application before deployment; do not use the vulnerable example backend."
 echo ""
 echo "Press Ctrl+C to stop all services..."
 

@@ -28,6 +28,14 @@ server:
 
   trusted_proxies: []  # If behind a load balancer, add its IP
 
+applications:
+  registry_path: "data/apps.json"
+  # Add exact upstream authorities here; server.target_backend is trusted by default.
+  allowed_upstream_hosts: []
+
+showcase:
+  database_path: "data/showcase.db"
+
 protocol:
   max_url_length: 8192
   max_header_count: 60
@@ -162,11 +170,11 @@ tarpit:
   window_sec: 10
 
 admin:
-  enabled: true
-  listen_addr: "127.0.0.1:9091"  # Localhost only (use SSH tunnel)
+  enabled: false
+  listen_addr: "127.0.0.1:9091"
   username: "admin"
-  password_hash: ""  # Generate: echo -n "password" | sha256sum, then prefix with "sha256:"
-  read_only: false
+  password_hash: ""  # Set a strong hash before enabling the admin dashboard.
+  read_only: true
   require_localhost: true
   session_ttl_min: 720  # 12 hours
 
