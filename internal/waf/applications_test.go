@@ -77,6 +77,15 @@ func TestShowcaseApplicationsRoutePersistAndCompareThroughWAF(t *testing.T) {
 		t.Fatalf("loopback root did not direct users to original site: %d %q", localRootRecorder.Code, localRootRecorder.Header().Get("Location"))
 	}
 
+	commaURL := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/cyberlab/%D8%8C", nil)
+	browserHeaders(commaURL)
+	commaURL.RemoteAddr = "127.0.0.1:41234"
+	commaRecorder := httptest.NewRecorder()
+	manager.ServeHTTP(commaRecorder, commaURL)
+	if commaRecorder.Code != http.StatusFound || commaRecorder.Header().Get("Location") != "/cyberlab/" {
+		t.Fatalf("Arabic comma URL was not redirected to the lab: %d %q", commaRecorder.Code, commaRecorder.Header().Get("Location"))
+	}
+
 	for _, test := range []struct {
 		path, contains string
 	}{

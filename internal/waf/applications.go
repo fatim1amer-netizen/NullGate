@@ -199,6 +199,11 @@ func (m *ApplicationManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if (host == "localhost" || host == "127.0.0.1" || host == "::1") &&
+		r.URL.Path == "/cyberlab/،" && isLoopbackRequest(r) {
+		http.Redirect(w, r, "/cyberlab/", http.StatusFound)
+		return
+	}
+	if (host == "localhost" || host == "127.0.0.1" || host == "::1") &&
 		r.URL.Path == "/" && isLoopbackRequest(r) {
 		if app, ok := snapshot.byID["original-site"]; ok && app.engine != nil && app.config.InternalKind == "original-site" {
 			http.Redirect(w, r, "/original/", http.StatusFound)
